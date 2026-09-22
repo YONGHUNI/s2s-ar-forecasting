@@ -10,7 +10,8 @@ The current implementation focuses on reproducible GraphCast Operational experim
 
 The experiment is defined in `config/graphcast_operational.yaml`.
 
-- Initialization period: 2024-10-01 through 2025-04-30
+- Production initialization period: 2024-10-01 through 2025-04-30
+- Development config: `config/graphcast_test10.yaml` (10 initializations, 2024-10-01 through 2024-11-01)
 - Initialization days: Tuesday and Friday
 - Forecast lead: 42 days
 - Temporal resolution: 6 hours
@@ -33,13 +34,13 @@ hu_p GPU job (2 x L40S)
                                   │
                                   v
 batch CPU job
-  converter 0/1 ─ copy Zarr to /lscratch
-                ─ compressed NetCDF
-                ─ atomic publish to /scratch
+  converter 0/1 ─ read staged Zarr directly from /scratch
+                ─ synchronous NetCDF4 write
+                ─ atomic .partial -> .nc publish on /scratch
                 ─ remove staged Zarr
 ```
 
-The producer keeps the GPU allocation focused on inference. The converter performs Zarr-to-NetCDF compression independently on regular CPU nodes. Shared staging uses `/scratch` because `/lscratch` is node-local.
+The producer keeps the GPU allocation focused on inference. The converter runs independently on regular CPU nodes. Sapelo2 benchmarking showed that the tested batch node could read the staged Zarr directly from shared `/scratch` faster than copying it to node-local `/lscratch`, so the converter now reads staging in place. Compression level 0 is used by the 10-initialization development config because full-file uncompressed conversion completed in about 1.5 minutes, whereas zlib level 1 was much slower.
 
 ## Environment
 
@@ -70,6 +71,9 @@ Submit from the repository root:
 
 ```bash
 bash submit_graphcast_pipeline.sh
+
+# 10-initialization development run
+CONFIG=config/graphcast_test10.yaml bash submit_graphcast_pipeline.sh
 ```
 
 This submits:
@@ -96,7 +100,7 @@ Default paths:
 
 ```text
 /lscratch/$USER/graphcast-operational/
-    node-local producer/converter workspace
+    node-local producer workspace and Nix/Pixi caches
 
 /scratch/$USER/weather-ai/graphcast-operational/.staging/
     shared Zarr handoff
@@ -138,7 +142,8 @@ The YAML controls dates, forecast length, variables, paths, and NetCDF compressi
 ```text
 .
 ├── config/
-│   └── graphcast_operational.yaml
+│   ├── graphcast_operational.yaml
+│   └── graphcast_test10.yaml
 ├── scripts/
 │   ├── graphcast_config.py
 │   ├── run_graphcast_forecast.py
