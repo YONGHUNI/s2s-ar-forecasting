@@ -48,7 +48,8 @@ output:
   final_root: "/scratch/{user}/weather-ai/graphcast-operational-test10"
 
 converter:
-  poll_seconds: 30
+  poll_seconds: 5
+  workers: 2
 
 validation:
   expected_variable_count: 70
