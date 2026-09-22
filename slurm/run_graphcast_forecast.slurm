@@ -14,11 +14,17 @@
 set -euo pipefail
 
 PROJECT="${PROJECT:-${SLURM_SUBMIT_DIR:?Submit this job from the repository root}}"
+CONFIG="${CONFIG:-config/graphcast_operational.yaml}"
 BOOTSTRAP="$HOME/rootless-nix-bootstrap"
 NIX="$HOME/.local/bin/nix"
 
 [[ -f "$PROJECT/pixi.toml" ]] || {
     echo "pixi.toml not found in PROJECT=$PROJECT" >&2
+    exit 1
+}
+
+[[ -f "$PROJECT/$CONFIG" ]] || {
+    echo "GraphCast config not found: $PROJECT/$CONFIG" >&2
     exit 1
 }
 
@@ -31,6 +37,8 @@ cd "$PROJECT"
     pixi install -e graphcast
 '
 
+export CONFIG
+
 srun     --ntasks="$SLURM_NTASKS"     --cpus-per-task="$SLURM_CPUS_PER_TASK"     --gpus-per-task=1     --gpu-bind=single:1     "$NIX" develop --command bash -c '
         set -euo pipefail
         export OMP_NUM_THREADS="$SLURM_CPUS_PER_TASK"
@@ -38,7 +46,7 @@ srun     --ntasks="$SLURM_NTASKS"     --cpus-per-task="$SLURM_CPUS_PER_TASK"    
         export MKL_NUM_THREADS="$SLURM_CPUS_PER_TASK"
         export NUMEXPR_NUM_THREADS="$SLURM_CPUS_PER_TASK"
 
-        echo "Producer=$SLURM_PROCID CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
+        echo "Producer=$SLURM_PROCID CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES CONFIG=$CONFIG"
 
-        pixi run -e graphcast             python scripts/run_graphcast_forecast.py             --config config/graphcast_operational.yaml             --worker "$SLURM_PROCID"             --num-workers "$SLURM_NTASKS"
+        pixi run -e graphcast             python scripts/run_graphcast_forecast.py             --config "$CONFIG"             --worker "$SLURM_PROCID"             --num-workers "$SLURM_NTASKS"
     '
