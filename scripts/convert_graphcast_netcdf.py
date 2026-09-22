@@ -88,12 +88,6 @@ def main():
     # scan the staging directory, so one ready item is submitted at most once.
     with ProcessPoolExecutor(max_workers=cfg.converter_workers) as pool:
         while True:
-            completed = sum(job.final.exists() for job in jobs)
-
-            if completed == len(jobs):
-                log(f"All {completed} NetCDF files are complete.")
-                break
-
             # Collect finished workers first so newly freed slots can be filled
             # in the same polling iteration.
             done = [future for future in active if future.done()]
@@ -115,6 +109,16 @@ def main():
                     f"NetCDF encoding: {duration(result.encoding_seconds)} | "
                     f"size={result.output_size_bytes / 1024**3:.2f} GiB"
                 )
+
+            completed = sum(job.final.exists() for job in jobs)
+
+            if completed == len(jobs) and not active:
+                for job in jobs:
+                    remove(job.staged)
+                    remove(job.ready)
+
+                log(f"All {completed} NetCDF files are complete.")
+                break
 
             slots = cfg.converter_workers - len(active)
 
