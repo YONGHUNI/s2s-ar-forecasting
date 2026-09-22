@@ -2,13 +2,11 @@
 from __future__ import annotations
 
 import argparse
-import os
 import shutil
 import time
 from pathlib import Path
 
 import xarray as xr
-from dask.diagnostics import ProgressBar
 
 from graphcast_config import initialization_dates, load_graphcast_config, output_basename
 
@@ -33,6 +31,7 @@ def remove(path: Path):
 def validate(path: Path, cfg):
     if not path.exists() or path.stat().st_size == 0:
         raise RuntimeError(f"Invalid NetCDF: {path}")
+
     with xr.open_dataset(path, engine="netcdf4") as ds:
         if ds.sizes.get("lead_time") != cfg.expected_lead_times:
             raise RuntimeError("Unexpected lead_time dimension")
@@ -41,8 +40,18 @@ def validate(path: Path, cfg):
 
 
 def encoding(ds, level):
+    if level == 0:
+        return {
+            name: {"zlib": False}
+            for name in ds.data_vars
+        }
+
     return {
-        name: {"zlib": True, "complevel": level, "shuffle": True}
+        name: {
+            "zlib": True,
+            "complevel": level,
+            "shuffle": True,
+        }
         for name in ds.data_vars
     }
 
@@ -58,69 +67,78 @@ def main():
         raise ValueError("invalid worker/num-workers")
 
     cfg = load_graphcast_config(args.config)
-    threads = int(os.environ.get("NC_WORKERS", "8"))
     dates = initialization_dates(cfg)[args.worker::args.num_workers]
-    work = cfg.local_root / f"converter-{args.worker}"
-    work.mkdir(parents=True, exist_ok=True)
+
     cfg.staging_root.mkdir(parents=True, exist_ok=True)
     cfg.final_root.mkdir(parents=True, exist_ok=True)
+
+    log(
+        f"Converter {args.worker}: {len(dates)} initializations; "
+        f"compression level={cfg.compression_level}"
+    )
 
     for n, init_date in enumerate(dates, 1):
         base = output_basename(cfg, init_date)
         staged = cfg.staging_root / f"{base}.zarr"
         ready = cfg.staging_root / f"{base}.ready"
-        local_zarr = work / f"{base}.zarr"
-        tmp = work / f"{base}.tmp.nc"
-        local_nc = work / f"{base}.nc"
         final = cfg.final_root / f"{base}.nc"
         partial = Path(str(final) + ".partial")
 
         log(f"[{n}/{len(dates)}] {init_date}")
+
         if final.exists():
-            remove(staged); remove(ready)
+            log("Final NetCDF exists; skipping.")
+            remove(staged)
+            remove(ready)
             continue
 
         waited = 0
         while not (ready.exists() and staged.exists()):
             if final.exists():
                 break
+
             if waited % 60 == 0:
                 log(f"Waiting for producer ({waited}s)...")
+
             time.sleep(cfg.poll_seconds)
             waited += cfg.poll_seconds
+
         if final.exists():
             continue
 
-        for path in (local_zarr, tmp, local_nc, partial):
-            remove(path)
+        remove(partial)
 
-        log("Copying staged Zarr to node-local /lscratch...")
-        shutil.copytree(staged, local_zarr)
+        # Sapelo2 benchmark: shared /scratch reads the staged GraphCast Zarr
+        # faster than copying it to node-local /lscratch on the tested batch node.
+        # Write directly to a .partial file on the same shared filesystem so the
+        # final rename is atomic.
+        log("Opening staged Zarr directly from /scratch...")
+        ds = xr.open_zarr(
+            staged,
+            chunks={},
+            consolidated=False,
+        )
 
-        ds = xr.open_zarr(local_zarr, chunks={})
         try:
             start = time.perf_counter()
-            task = ds.to_netcdf(
-                tmp,
+
+            ds.to_netcdf(
+                partial,
                 engine="netcdf4",
                 encoding=encoding(ds, cfg.compression_level),
-                compute=False,
             )
-            with ProgressBar():
-                task.compute(scheduler="threads", num_workers=threads)
-            log(f"NetCDF encoding: {duration(time.perf_counter()-start)}")
+
+            log(f"NetCDF encoding: {duration(time.perf_counter() - start)}")
         finally:
             ds.close()
 
-        validate(tmp, cfg)
-        tmp.replace(local_nc)
-        shutil.copy2(local_nc, partial)
-        if local_nc.stat().st_size != partial.stat().st_size:
-            raise RuntimeError("NetCDF publication size mismatch")
+        validate(partial, cfg)
         partial.replace(final)
         validate(final, cfg)
 
-        remove(staged); remove(ready); remove(local_zarr); remove(local_nc)
+        remove(staged)
+        remove(ready)
+
         log(f"Published: {final}")
 
 
