@@ -4,11 +4,20 @@ from __future__ import annotations
 import argparse
 import shutil
 import time
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
+from dataclasses import dataclass
 from pathlib import Path
 
-import xarray as xr
-
 from graphcast_config import initialization_dates, load_graphcast_config, output_basename
+from netcdf_conversion import ConversionResult, convert_zarr_to_netcdf
+
+
+@dataclass(frozen=True)
+class ConversionJob:
+    base: str
+    staged: Path
+    ready: Path
+    final: Path
 
 
 def log(msg=""):
@@ -28,118 +37,126 @@ def remove(path: Path):
         path.unlink()
 
 
-def validate(path: Path, cfg):
-    if not path.exists() or path.stat().st_size == 0:
-        raise RuntimeError(f"Invalid NetCDF: {path}")
+def build_jobs(cfg) -> list[ConversionJob]:
+    jobs = []
 
-    with xr.open_dataset(path, engine="netcdf4") as ds:
-        if ds.sizes.get("lead_time") != cfg.expected_lead_times:
-            raise RuntimeError("Unexpected lead_time dimension")
-        if len(ds.data_vars) != cfg.expected_variable_count:
-            raise RuntimeError("Unexpected variable count")
+    for init_date in initialization_dates(cfg):
+        base = output_basename(cfg, init_date)
+        jobs.append(
+            ConversionJob(
+                base=base,
+                staged=cfg.staging_root / f"{base}.zarr",
+                ready=cfg.staging_root / f"{base}.ready",
+                final=cfg.final_root / f"{base}.nc",
+            )
+        )
+
+    return jobs
 
 
-def encoding(ds, level):
-    if level == 0:
-        return {
-            name: {"zlib": False}
-            for name in ds.data_vars
-        }
-
-    return {
-        name: {
-            "zlib": True,
-            "complevel": level,
-            "shuffle": True,
-        }
-        for name in ds.data_vars
-    }
+def convert_one(job: ConversionJob, cfg) -> ConversionResult:
+    return convert_zarr_to_netcdf(
+        job.staged,
+        job.final,
+        compression_level=cfg.compression_level,
+        consolidated=False,
+        expected_sizes={"lead_time": cfg.expected_lead_times},
+        expected_variable_count=cfg.expected_variable_count,
+    )
 
 
 def main():
-    p = argparse.ArgumentParser()
-    p.add_argument("--config", default="config/graphcast_operational.yaml")
-    p.add_argument("--worker", type=int, required=True)
-    p.add_argument("--num-workers", type=int, default=1)
-    args = p.parse_args()
-
-    if args.num_workers < 1 or not 0 <= args.worker < args.num_workers:
-        raise ValueError("invalid worker/num-workers")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", default="config/graphcast_operational.yaml")
+    args = parser.parse_args()
 
     cfg = load_graphcast_config(args.config)
-    dates = initialization_dates(cfg)[args.worker::args.num_workers]
-
     cfg.staging_root.mkdir(parents=True, exist_ok=True)
     cfg.final_root.mkdir(parents=True, exist_ok=True)
 
+    jobs = build_jobs(cfg)
+    active = {}
+
     log(
-        f"Converter {args.worker}: {len(dates)} initializations; "
+        f"Converter manager: {len(jobs)} initializations; "
+        f"workers={cfg.converter_workers}; "
+        f"poll={cfg.poll_seconds}s; "
         f"compression level={cfg.compression_level}"
     )
 
-    for n, init_date in enumerate(dates, 1):
-        base = output_basename(cfg, init_date)
-        staged = cfg.staging_root / f"{base}.zarr"
-        ready = cfg.staging_root / f"{base}.ready"
-        final = cfg.final_root / f"{base}.nc"
-        partial = Path(str(final) + ".partial")
+    # One manager process owns discovery/submission. Worker processes never
+    # scan the staging directory, so one ready item is submitted at most once.
+    with ProcessPoolExecutor(max_workers=cfg.converter_workers) as pool:
+        while True:
+            completed = sum(job.final.exists() for job in jobs)
 
-        log(f"[{n}/{len(dates)}] {init_date}")
-
-        if final.exists():
-            log("Final NetCDF exists; skipping.")
-            remove(staged)
-            remove(ready)
-            continue
-
-        waited = 0
-        while not (ready.exists() and staged.exists()):
-            if final.exists():
+            if completed == len(jobs):
+                log(f"All {completed} NetCDF files are complete.")
                 break
 
-            if waited % 60 == 0:
-                log(f"Waiting for producer ({waited}s)...")
+            # Collect finished workers first so newly freed slots can be filled
+            # in the same polling iteration.
+            done = [future for future in active if future.done()]
 
-            time.sleep(cfg.poll_seconds)
-            waited += cfg.poll_seconds
+            for future in done:
+                job = active.pop(future)
 
-        if final.exists():
-            continue
+                try:
+                    result = future.result()
+                except Exception:
+                    log(f"FAILED: {job.base}")
+                    raise
 
-        remove(partial)
+                remove(job.staged)
+                remove(job.ready)
 
-        # Sapelo2 benchmark: shared /scratch reads the staged GraphCast Zarr
-        # faster than copying it to node-local /lscratch on the tested batch node.
-        # Write directly to a .partial file on the same shared filesystem so the
-        # final rename is atomic.
-        log("Opening staged Zarr directly from /scratch...")
-        ds = xr.open_zarr(
-            staged,
-            chunks={},
-            consolidated=False,
-        )
+                log(
+                    f"Published: {result.destination} | "
+                    f"NetCDF encoding: {duration(result.encoding_seconds)} | "
+                    f"size={result.output_size_bytes / 1024**3:.2f} GiB"
+                )
 
-        try:
-            start = time.perf_counter()
+            slots = cfg.converter_workers - len(active)
 
-            ds.to_netcdf(
-                partial,
-                engine="netcdf4",
-                encoding=encoding(ds, cfg.compression_level),
-            )
+            if slots > 0:
+                active_bases = {job.base for job in active.values()}
 
-            log(f"NetCDF encoding: {duration(time.perf_counter() - start)}")
-        finally:
-            ds.close()
+                for job in jobs:
+                    if slots == 0:
+                        break
 
-        validate(partial, cfg)
-        partial.replace(final)
-        validate(final, cfg)
+                    if job.final.exists():
+                        # Safe restart cleanup after an already-published file.
+                        remove(job.staged)
+                        remove(job.ready)
+                        continue
 
-        remove(staged)
-        remove(ready)
+                    if job.base in active_bases:
+                        continue
 
-        log(f"Published: {final}")
+                    if not (job.ready.exists() and job.staged.exists()):
+                        continue
+
+                    log(f"Queue -> worker: {job.base}")
+                    future = pool.submit(convert_one, job, cfg)
+                    active[future] = job
+                    active_bases.add(job.base)
+                    slots -= 1
+
+            if active:
+                # Wake quickly when a worker finishes, but still rescan
+                # periodically for newly-created .ready markers.
+                wait(
+                    active,
+                    timeout=cfg.poll_seconds,
+                    return_when=FIRST_COMPLETED,
+                )
+            else:
+                log(
+                    f"Waiting for ready Zarr files "
+                    f"({completed}/{len(jobs)} complete)..."
+                )
+                time.sleep(cfg.poll_seconds)
 
 
 if __name__ == "__main__":
