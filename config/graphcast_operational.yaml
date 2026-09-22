@@ -43,6 +43,9 @@ variables:
 
 output:
   compression_level: 1
+  zarr_backend: sync
+  async_pool_size: 4
+  shard_lead_times: 1
   local_root: "/lscratch/{user}/graphcast-operational"
   staging_root: "/scratch/{user}/weather-ai/graphcast-operational/.staging"
   final_root: "/scratch/{user}/weather-ai/graphcast-operational"
