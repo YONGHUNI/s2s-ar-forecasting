@@ -1,5 +1,5 @@
 [workspace]
-name = "weather-ai"
+name = "s2s-ar-forecasting"
 channels = ["conda-forge"]
 platforms = ["linux-64"]
 
@@ -19,8 +19,13 @@ ipywidgets = ">=8.1.9,<9"
 [feature.pangu.pypi-dependencies]
 earth2studio = { version = "*", extras = ["pangu"] }
 
+[feature.graphcast.dependencies]
+pyyaml = ">=6.0,<7"
+
 [feature.graphcast.pypi-dependencies]
 earth2studio = { version = ">=0.18.0,<0.19", extras = ["graphcast"] }
+dask = ">=2026.8,<2027"
+netcdf4 = ">=1.7,<2"
 
 weathernext = {
     git = "https://github.com/google-deepmind/weathernext.git",
