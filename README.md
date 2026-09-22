@@ -34,13 +34,21 @@ hu_p GPU job (2 x L40S)
                                   │
                                   v
 batch CPU job
-  converter 0/1 ─ read staged Zarr directly from /scratch
-                ─ synchronous NetCDF4 write
-                ─ atomic .partial -> .nc publish on /scratch
-                ─ remove staged Zarr
+  converter manager
+    ├─ scans shared .ready queue on /scratch
+    ├─ process 1 ─ Zarr -> NetCDF
+    └─ process 2 ─ Zarr -> NetCDF
+
+  each worker:
+    ─ reads staged Zarr directly from /scratch
+    ─ writes NetCDF synchronously
+    ─ atomically publishes .partial -> .nc
+    ─ manager removes staged Zarr + .ready after success
 ```
 
-The producer keeps the GPU allocation focused on inference. The converter runs independently on regular CPU nodes. Sapelo2 benchmarking showed that the tested batch node could read the staged Zarr directly from shared `/scratch` faster than copying it to node-local `/lscratch`, so the converter now reads staging in place. Compression level 0 is used by the 10-initialization development config because full-file uncompressed conversion completed in about 1.5 minutes, whereas zlib level 1 was much slower.
+The producer keeps the GPU allocation focused on inference. The converter runs independently on a regular CPU node as one manager process with a bounded process pool. The manager alone scans `.ready` markers and submits each ready Zarr to at most one worker, which avoids duplicate work inside the job while keeping two independent conversions in flight when data are available. If both workers are busy, additional ready Zarr stores remain queued on the shared filesystem until a slot opens.
+
+Sapelo2 benchmarking showed that the tested batch node could read staged Zarr directly from shared `/scratch` faster than copying it to node-local `/lscratch`, so converter workers read staging in place. The reusable conversion logic is isolated in `scripts/netcdf_conversion.py`; the GraphCast-specific manager only handles discovery, queueing, validation expectations, cleanup, and restart behavior. Compression level 0 is used by the 10-initialization development config because full-file uncompressed conversion was dramatically faster than zlib level 1 in testing.
 
 ## Environment
 
@@ -79,7 +87,7 @@ CONFIG=config/graphcast_test10.yaml bash submit_graphcast_pipeline.sh
 This submits:
 
 1. `slurm/run_graphcast_forecast.slurm`: two GraphCast GPU producers on `hu_p`.
-2. `slurm/run_graphcast_convert.slurm`: two NetCDF CPU converters on `batch`.
+2. `slurm/run_graphcast_convert.slurm`: one CPU-side converter manager on `batch`, with a configurable local process pool.
 
 The converter job uses Slurm's `after` dependency so it becomes eligible after the producer job starts rather than waiting for all GPU inference to finish.
 
@@ -133,6 +141,10 @@ experiment:
 
 output:
   compression_level: 1
+
+converter:
+  poll_seconds: 5
+  workers: 2
 ```
 
 The YAML controls dates, forecast length, variables, paths, and NetCDF compression. Slurm resources remain in the `.slurm` files because they describe scheduler resources rather than the experiment itself.
@@ -146,6 +158,7 @@ The YAML controls dates, forecast length, variables, paths, and NetCDF compressi
 │   └── graphcast_test10.yaml
 ├── scripts/
 │   ├── graphcast_config.py
+│   ├── netcdf_conversion.py
 │   ├── run_graphcast_forecast.py
 │   └── convert_graphcast_netcdf.py
 ├── slurm/
