@@ -1,0 +1,24 @@
+
+# Pixi local state
+.pixi/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Slurm logs
+logs/
+graphcast-*.out
+graphcast-*.err
+slurm-*.out
+
+# Generated model outputs
+*.zarr/
+*.nc
+*.nc.tmp
+*.partial
+*.partial.zarr/
+
+# Local/editor files
+.DS_Store
+.vscode/

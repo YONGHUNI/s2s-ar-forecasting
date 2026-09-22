@@ -1,0 +1,53 @@
+[workspace]
+name = "weather-ai"
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[system-requirements]
+cuda = "13.0"
+
+[dependencies]
+python = "3.12.*"
+numpy = "*"
+xarray = "<=2026.2.0"
+zarr = "*"
+matplotlib = "*"
+pip = "*"
+ipykernel = "*"
+ipywidgets = ">=8.1.9,<9"
+
+[feature.pangu.pypi-dependencies]
+earth2studio = { version = "*", extras = ["pangu"] }
+
+[feature.graphcast.pypi-dependencies]
+earth2studio = { version = ">=0.18.0,<0.19", extras = ["graphcast"] }
+
+weathernext = {
+    git = "https://github.com/google-deepmind/weathernext.git",
+    rev = "9c034db1ff412d5db6cbe6bb0c5c9afc5a267719"
+}
+
+[feature.sfno.dependencies]
+pytorch-gpu = "*"
+cuda-version = "13.0.*"
+
+[feature.sfno.pypi-options]
+no-build-isolation = ["torch-harmonics"]
+
+[feature.sfno.pypi-dependencies]
+earth2studio = { version = ">=0.18.0,<0.19", extras = ["sfno"] }
+
+makani = {
+    git = "https://github.com/NVIDIA/makani.git",
+    rev = "b38fcb2799d7dbc146fa60459f3f9823394a8bf1"
+}
+
+torch-harmonics = {
+    git = "https://github.com/NVIDIA/torch-harmonics.git",
+    rev = "a632ca748a12bd9f74dbc1e00653317810991f74"
+}
+
+[environments]
+pangu = ["pangu"]
+graphcast = ["graphcast"]
+sfno = ["sfno"]
