@@ -34,6 +34,9 @@ class GraphCastConfig:
     variables: tuple[str, ...]
     expected_variable_count: int
     compression_level: int
+    zarr_backend: str
+    async_pool_size: int
+    shard_lead_times: int
     local_root: Path
     staging_root: Path
     final_root: Path
@@ -135,6 +138,26 @@ def load_graphcast_config(path: str | Path) -> GraphCastConfig:
     if not 0 <= compression_level <= 9:
         raise ValueError("output.compression_level must be between 0 and 9")
 
+    zarr_backend = str(output.get("zarr_backend", "sync")).strip().lower()
+
+    if zarr_backend not in {"sync", "async"}:
+        raise ValueError("output.zarr_backend must be 'sync' or 'async'")
+
+    async_pool_size = int(output.get("async_pool_size", 4))
+
+    if async_pool_size < 1:
+        raise ValueError("output.async_pool_size must be >= 1")
+
+    shard_lead_times = int(output.get("shard_lead_times", 1))
+
+    if shard_lead_times < 1:
+        raise ValueError("output.shard_lead_times must be >= 1")
+
+    if shard_lead_times > steps + 1:
+        raise ValueError(
+            "output.shard_lead_times cannot exceed the number of lead times"
+        )
+
     converter_workers = int(converter.get("workers", 2))
 
     if converter_workers < 1:
@@ -152,6 +175,9 @@ def load_graphcast_config(path: str | Path) -> GraphCastConfig:
         variables=tuple(variables),
         expected_variable_count=expected_variable_count,
         compression_level=compression_level,
+        zarr_backend=zarr_backend,
+        async_pool_size=async_pool_size,
+        shard_lead_times=shard_lead_times,
         local_root=_expand_path(output["local_root"]),
         staging_root=_expand_path(output["staging_root"]),
         final_root=_expand_path(output["final_root"]),
