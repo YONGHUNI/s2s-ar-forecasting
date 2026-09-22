@@ -1,4 +1,3 @@
-
 # Pixi local state
 .pixi/
 
@@ -16,8 +15,10 @@ slurm-*.out
 *.zarr/
 *.nc
 *.nc.tmp
+*.tmp.nc
 *.partial
 *.partial.zarr/
+*.ready
 
 # Local/editor files
 .DS_Store

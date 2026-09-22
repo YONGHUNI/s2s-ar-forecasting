@@ -1,5 +1,5 @@
 {
-  description = "Python data science environment with Nix-provided Pixi";
+  description = "S2S atmospheric river forecasting with Nix-provided Pixi";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
 
