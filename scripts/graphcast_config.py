@@ -38,6 +38,7 @@ class GraphCastConfig:
     staging_root: Path
     final_root: Path
     poll_seconds: int
+    converter_workers: int
 
 
 def _expand_path(value: str) -> Path:
@@ -134,6 +135,11 @@ def load_graphcast_config(path: str | Path) -> GraphCastConfig:
     if not 0 <= compression_level <= 9:
         raise ValueError("output.compression_level must be between 0 and 9")
 
+    converter_workers = int(converter.get("workers", 2))
+
+    if converter_workers < 1:
+        raise ValueError("converter.workers must be >= 1")
+
     return GraphCastConfig(
         start_date=start_date,
         end_date=end_date,
@@ -150,6 +156,7 @@ def load_graphcast_config(path: str | Path) -> GraphCastConfig:
         staging_root=_expand_path(output["staging_root"]),
         final_root=_expand_path(output["final_root"]),
         poll_seconds=int(converter.get("poll_seconds", 30)),
+        converter_workers=converter_workers,
     )
 
 
