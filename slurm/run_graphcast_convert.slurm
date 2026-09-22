@@ -3,8 +3,8 @@
 #SBATCH --job-name=graphcast-nc
 #SBATCH --partition=batch
 #SBATCH --nodes=1
-#SBATCH --ntasks=2
-#SBATCH --cpus-per-task=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=2
 #SBATCH --mem=32G
 #SBATCH --time=04:00:00
 #SBATCH --output=graphcast-convert-%j.out
@@ -38,14 +38,14 @@ cd "$PROJECT"
 
 export CONFIG
 
-srun     --ntasks="$SLURM_NTASKS"     --cpus-per-task="$SLURM_CPUS_PER_TASK"     "$NIX" develop --command bash -c '
+srun     --ntasks=1     --cpus-per-task="$SLURM_CPUS_PER_TASK"     "$NIX" develop --command bash -c '
         set -euo pipefail
         export OMP_NUM_THREADS=1
         export OPENBLAS_NUM_THREADS=1
         export MKL_NUM_THREADS=1
         export NUMEXPR_NUM_THREADS=1
 
-        echo "Converter=$SLURM_PROCID CONFIG=$CONFIG"
+        echo "Converter manager CONFIG=$CONFIG"
 
-        pixi run -e graphcast             python scripts/convert_graphcast_netcdf.py             --config "$CONFIG"             --worker "$SLURM_PROCID"             --num-workers "$SLURM_NTASKS"
+        pixi run -e graphcast             python scripts/convert_graphcast_netcdf.py             --config "$CONFIG"
     '
