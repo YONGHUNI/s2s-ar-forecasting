@@ -42,9 +42,9 @@ variables:
     - z
 
 output:
-  compression_level: 1
-  zarr_backend: sync
-  write_mode: local_then_stage
+  compression_level: 2
+  zarr_backend: async
+  write_mode: direct_staging
   async_pool_size: 4
   shard_lead_times: 1
   local_root: "/lscratch/{user}/graphcast-operational"
@@ -53,7 +53,7 @@ output:
 
 converter:
   poll_seconds: 5
-  workers: 2
+  workers: 12
 
 validation:
   expected_variable_count: 70
