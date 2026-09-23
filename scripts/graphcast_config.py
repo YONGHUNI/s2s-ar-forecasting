@@ -26,6 +26,7 @@ class GraphCastConfig:
     start_date: date
     end_date: date
     init_weekdays: tuple[int, ...]
+    init_months: tuple[int, ...]
     forecast_days: int
     hours_per_step: int
     steps: int
@@ -33,6 +34,7 @@ class GraphCastConfig:
     device: str
     variables: tuple[str, ...]
     expected_variable_count: int
+    expected_initializations: int | None
     compression_level: int
     zarr_backend: str
     write_mode: str
@@ -70,6 +72,40 @@ def _weekday_indices(names: list[str]) -> tuple[int, ...]:
     return tuple(indices)
 
 
+def _month_indices(values) -> tuple[int, ...]:
+    months = tuple(int(value) for value in values)
+
+    if not months:
+        raise ValueError("experiment.init_months must not be empty")
+
+    invalid = [month for month in months if not 1 <= month <= 12]
+    if invalid:
+        raise ValueError(
+            f"experiment.init_months contains invalid month(s): {invalid}"
+        )
+
+    if len(set(months)) != len(months):
+        raise ValueError("experiment.init_months must not contain duplicates")
+
+    return months
+
+
+def initialization_dates(config: GraphCastConfig) -> list[date]:
+    dates = []
+    current = config.start_date
+
+    while current <= config.end_date:
+        if (
+            current.weekday() in config.init_weekdays
+            and current.month in config.init_months
+        ):
+            dates.append(current)
+
+        current += timedelta(days=1)
+
+    return dates
+
+
 def load_graphcast_config(path: str | Path) -> GraphCastConfig:
     path = Path(path)
 
@@ -93,6 +129,9 @@ def load_graphcast_config(path: str | Path) -> GraphCastConfig:
 
     if end_date < start_date:
         raise ValueError("experiment.end_date must be on or after start_date")
+
+    init_weekdays = _weekday_indices(experiment["init_weekdays"])
+    init_months = _month_indices(experiment.get("init_months", range(1, 13)))
 
     forecast_days = int(experiment["forecast_days"])
     hours_per_step = int(experiment["hours_per_step"])
@@ -134,6 +173,13 @@ def load_graphcast_config(path: str | Path) -> GraphCastConfig:
             f"{len(variables)} != {expected_variable_count}"
         )
 
+    expected_initializations_raw = validation.get("expected_initializations")
+    expected_initializations = (
+        None
+        if expected_initializations_raw is None
+        else int(expected_initializations_raw)
+    )
+
     compression_level = int(output["compression_level"])
 
     if not 0 <= compression_level <= 9:
@@ -171,10 +217,11 @@ def load_graphcast_config(path: str | Path) -> GraphCastConfig:
     if converter_workers < 1:
         raise ValueError("converter.workers must be >= 1")
 
-    return GraphCastConfig(
+    config = GraphCastConfig(
         start_date=start_date,
         end_date=end_date,
-        init_weekdays=_weekday_indices(experiment["init_weekdays"]),
+        init_weekdays=init_weekdays,
+        init_months=init_months,
         forecast_days=forecast_days,
         hours_per_step=hours_per_step,
         steps=steps,
@@ -182,6 +229,7 @@ def load_graphcast_config(path: str | Path) -> GraphCastConfig:
         device=str(model.get("device", "cuda")),
         variables=tuple(variables),
         expected_variable_count=expected_variable_count,
+        expected_initializations=expected_initializations,
         compression_level=compression_level,
         zarr_backend=zarr_backend,
         write_mode=write_mode,
@@ -194,18 +242,15 @@ def load_graphcast_config(path: str | Path) -> GraphCastConfig:
         converter_workers=converter_workers,
     )
 
+    if expected_initializations is not None:
+        actual = len(initialization_dates(config))
+        if actual != expected_initializations:
+            raise ValueError(
+                "Configured initialization count does not match validation "
+                f"expectation: {actual} != {expected_initializations}"
+            )
 
-def initialization_dates(config: GraphCastConfig) -> list[date]:
-    dates = []
-    current = config.start_date
-
-    while current <= config.end_date:
-        if current.weekday() in config.init_weekdays:
-            dates.append(current)
-
-        current += timedelta(days=1)
-
-    return dates
+    return config
 
 
 def output_basename(config: GraphCastConfig, init_date: date) -> str:
