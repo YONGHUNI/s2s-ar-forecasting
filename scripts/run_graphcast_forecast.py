@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 import time
@@ -18,8 +19,13 @@ from earth2studio.models.px import GraphCastOperational
 from graphcast_config import initialization_dates, load_graphcast_config, output_basename
 
 
-def log(msg=""):
-    print(msg, flush=True)
+def log(msg="", *, producer=None):
+    stamp = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+    job = os.environ.get("SLURM_JOB_ID", "local")
+    context = f"{stamp} | job={job}"
+    if producer is not None:
+        context += f" | producer={producer}"
+    print(f"{context} | {msg}", flush=True)
 
 
 def duration(seconds):
@@ -90,22 +96,25 @@ def main():
     dates = initialization_dates(cfg)
     mine = dates[args.worker::args.num_workers]
     work = cfg.local_root / f"producer-{args.worker}"
-    work.mkdir(parents=True, exist_ok=True)
+    if cfg.write_mode == "local_then_stage":
+        work.mkdir(parents=True, exist_ok=True)
     cfg.staging_root.mkdir(parents=True, exist_ok=True)
     cfg.final_root.mkdir(parents=True, exist_ok=True)
 
     log(
         f"Producer {args.worker}: {len(mine)} of {len(dates)} initializations; "
         f"zarr_backend={cfg.zarr_backend}; "
+        f"write_mode={cfg.write_mode}; "
         f"async_pool={cfg.async_pool_size}; "
-        f"lead_time_shard={cfg.shard_lead_times}"
+        f"lead_time_shard={cfg.shard_lead_times}",
+        producer=args.worker,
     )
 
     t0 = time.perf_counter()
     pkg = GraphCastOperational.load_default_package()
     model = GraphCastOperational.load_model(pkg)
     data = ARCO()
-    log(f"Model loaded in {duration(time.perf_counter()-t0)}")
+    log(f"Model loaded in {duration(time.perf_counter()-t0)}", producer=args.worker)
 
     for n, init_date in enumerate(mine, 1):
         base = output_basename(cfg, init_date)
@@ -115,16 +124,16 @@ def main():
         ready = cfg.staging_root / f"{base}.ready"
         final = cfg.final_root / f"{base}.nc"
 
-        log(f"[{n}/{len(mine)}] {init_date}")
+        log(f"[{n}/{len(mine)}] {init_date}", producer=args.worker)
 
         if final.exists():
-            log("Final NetCDF exists; skipping.")
+            log("Final NetCDF exists; skipping.", producer=args.worker)
             remove(local)
             remove(partial)
             continue
 
         if staged.exists() and ready.exists():
-            log("Staged Zarr already ready; skipping.")
+            log("Staged Zarr already ready; skipping.", producer=args.worker)
             remove(local)
             remove(partial)
             continue
@@ -134,7 +143,8 @@ def main():
         remove(staged)
         remove(ready)
 
-        io = make_io(cfg, local, init_date)
+        write_target = local if cfg.write_mode == "local_then_stage" else partial
+        io = make_io(cfg, write_target, init_date)
 
         start = time.perf_counter()
         run.deterministic(
@@ -157,11 +167,13 @@ def main():
         log(
             f"Inference loop: {duration(inference_loop)}; "
             f"Zarr drain: {duration(drain)}; "
-            f"Zarr: {size_gib(local):.2f} GiB"
+            f"Zarr: {size_gib(write_target):.2f} GiB",
+            producer=args.worker,
         )
 
         start = time.perf_counter()
-        shutil.copytree(local, partial)
+        if cfg.write_mode == "local_then_stage":
+            shutil.copytree(local, partial)
         partial.replace(staged)
         ready.write_text(
             f"ready {datetime.now().isoformat()}\n",
@@ -170,7 +182,13 @@ def main():
         stage = time.perf_counter() - start
         remove(local)
 
-        log(f"Staged to /scratch in {duration(stage)}")
+        if cfg.write_mode == "local_then_stage":
+            log(f"Staged to /scratch in {duration(stage)}", producer=args.worker)
+        else:
+            log(
+                f"Direct /scratch finalize in {duration(stage)}",
+                producer=args.worker,
+            )
 
 
 if __name__ == "__main__":
