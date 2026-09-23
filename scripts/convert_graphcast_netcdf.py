@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import time
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from graphcast_config import initialization_dates, load_graphcast_config, output_basename
@@ -21,7 +23,9 @@ class ConversionJob:
 
 
 def log(msg=""):
-    print(msg, flush=True)
+    stamp = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+    job = os.environ.get("SLURM_JOB_ID", "local")
+    print(f"{stamp} | job={job} | {msg}", flush=True)
 
 
 def duration(seconds):
@@ -54,8 +58,8 @@ def build_jobs(cfg) -> list[ConversionJob]:
     return jobs
 
 
-def convert_one(job: ConversionJob, cfg) -> ConversionResult:
-    return convert_zarr_to_netcdf(
+def convert_one(job: ConversionJob, cfg) -> tuple[int, ConversionResult]:
+    result = convert_zarr_to_netcdf(
         job.staged,
         job.final,
         compression_level=cfg.compression_level,
@@ -63,6 +67,7 @@ def convert_one(job: ConversionJob, cfg) -> ConversionResult:
         expected_sizes={"lead_time": cfg.expected_lead_times},
         expected_variable_count=cfg.expected_variable_count,
     )
+    return os.getpid(), result
 
 
 def main():
@@ -96,7 +101,7 @@ def main():
                 job = active.pop(future)
 
                 try:
-                    result = future.result()
+                    worker_pid, result = future.result()
                 except Exception:
                     log(f"FAILED: {job.base}")
                     raise
@@ -105,7 +110,7 @@ def main():
                 remove(job.ready)
 
                 log(
-                    f"Published: {result.destination} | "
+                    f"Published: {result.destination} | worker_pid={worker_pid} | "
                     f"NetCDF encoding: {duration(result.encoding_seconds)} | "
                     f"size={result.output_size_bytes / 1024**3:.2f} GiB"
                 )
