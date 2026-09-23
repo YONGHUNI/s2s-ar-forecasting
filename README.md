@@ -13,6 +13,7 @@ The experiment is defined in `config/graphcast_operational.yaml`.
 - Production initialization period: 2024-10-01 through 2025-04-30
 - Baseline development config: `config/graphcast_test10.yaml` (10 initializations, synchronous Zarr)
 - Async-I/O development config: `config/graphcast_test10_async.yaml` (same 10 initializations, AsyncZarrBackend)
+- Direct-scratch benchmark: `config/graphcast_test4_async_scratch.yaml` (4 initializations, AsyncZarrBackend writes directly into shared `/scratch` staging)
 - Initialization days: Tuesday and Friday
 - Forecast lead: 42 days
 - Temporal resolution: 6 hours
@@ -47,7 +48,7 @@ batch CPU job
     ─ manager removes staged Zarr + .ready after success
 ```
 
-The producer can use either the synchronous `ZarrBackend` or Earth2Studio's `AsyncZarrBackend`. The async test configuration uses non-blocking writes with a four-thread I/O pool so per-step Zarr writes can overlap model execution. It explicitly calls `close()` before staging so all pending writes are drained before the Zarr is published. Lead-time sharding is currently disabled (`shard_lead_times: 1`) so the first A/B test changes only the synchronous-versus-asynchronous write behavior.
+The producer can use either the synchronous `ZarrBackend` or Earth2Studio's `AsyncZarrBackend`. The async test configuration uses non-blocking writes with a four-thread I/O pool so per-step Zarr writes can overlap model execution. It explicitly calls `close()` before publishing so all pending writes are drained first. `output.write_mode=local_then_stage` writes on `/lscratch` and then copies to shared staging; `output.write_mode=direct_staging` writes the temporary Zarr directly under shared `/scratch` staging and atomically renames it before creating the `.ready` marker. Lead-time sharding remains disabled (`shard_lead_times: 1`) so the direct-scratch A/B test changes only the storage path.
 
 The producer keeps the GPU allocation focused on inference. The converter runs independently on a regular CPU node as one manager process with a bounded process pool. The manager alone scans `.ready` markers and submits each ready Zarr to at most one worker, which avoids duplicate work inside the job while keeping two independent conversions in flight when data are available. If both workers are busy, additional ready Zarr stores remain queued on the shared filesystem until a slot opens.
 
@@ -88,7 +89,12 @@ CONFIG=config/graphcast_test10.yaml bash submit_graphcast_pipeline.sh
 
 # same 10 initializations with asynchronous Zarr writes
 CONFIG=config/graphcast_test10_async.yaml bash submit_graphcast_pipeline.sh
+
+# 4-initialization direct-/scratch async benchmark
+CONFIG=config/graphcast_test4_async_scratch.yaml bash submit_graphcast_pipeline.sh
 ```
+
+Each submission creates `logs/YYYYMMDD_HHMMSS/` under the repository root. Forecast and converter stdout/stderr are combined into `graphcast-forecast-<jobid>.log` and `graphcast-convert-<jobid>.log`; Python status lines also include wall-clock timestamps and the Slurm job ID.
 
 This submits:
 
@@ -148,6 +154,7 @@ experiment:
 output:
   compression_level: 1
   zarr_backend: sync
+  write_mode: local_then_stage
   async_pool_size: 4
   shard_lead_times: 1
 
@@ -165,7 +172,8 @@ The YAML controls dates, forecast length, variables, paths, and NetCDF compressi
 ├── config/
 │   ├── graphcast_operational.yaml
 │   ├── graphcast_test10.yaml
-│   └── graphcast_test10_async.yaml
+│   ├── graphcast_test10_async.yaml
+│   └── graphcast_test4_async_scratch.yaml
 ├── scripts/
 │   ├── graphcast_config.py
 │   ├── netcdf_conversion.py
