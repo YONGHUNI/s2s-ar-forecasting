@@ -6,7 +6,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=12
 #SBATCH --mem=48G
-#SBATCH --time=24:00:00
+#SBATCH --time=36:00:00
 #SBATCH --output=graphcast-convert-%j.out
 #SBATCH --error=graphcast-convert-%j.err
 
