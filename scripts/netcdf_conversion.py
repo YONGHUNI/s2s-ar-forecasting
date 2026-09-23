@@ -78,6 +78,53 @@ def validate_netcdf(
             )
 
 
+def _write_netcdf_variable_stream(
+    ds: xr.Dataset,
+    partial: Path,
+    *,
+    compression_level: int,
+) -> None:
+    """Write a dataset one data variable at a time without Dask.
+
+    Opening Zarr with chunks=None keeps xarray on its native lazy backend
+    instead of constructing a Dask graph. Writing the complete Dataset in one
+    call would cause xarray to materialize too much data at once for the
+    GraphCast workload. Instead, write global metadata/coordinates first and
+    then append one data variable per call. This bounds memory to roughly one
+    variable while avoiding the high Dask overhead observed for the native
+    GraphCast Zarr chunk layout.
+    """
+
+    encoding = build_netcdf_encoding(
+        ds.data_vars,
+        compression_level=compression_level,
+    )
+
+    # Coordinates are small relative to the GraphCast payload, and letting
+    # xarray write them preserves datetime/timedelta serialization metadata.
+    coordinate_ds = xr.Dataset(
+        coords={name: ds.coords[name] for name in ds.coords},
+        attrs=dict(ds.attrs),
+    )
+    coordinate_ds.to_netcdf(
+        partial,
+        mode="w",
+        engine="netcdf4",
+    )
+
+    # Append only the payload variable on each pass. Using .variable keeps
+    # its dimensions/attributes but does not repeatedly attach all coordinates
+    # to every temporary Dataset.
+    for name in ds.data_vars:
+        variable_ds = xr.Dataset({str(name): ds[name].variable})
+        variable_ds.to_netcdf(
+            partial,
+            mode="a",
+            engine="netcdf4",
+            encoding={str(name): encoding[str(name)]},
+        )
+
+
 def convert_zarr_to_netcdf(
     source: str | Path,
     destination: str | Path,
@@ -88,6 +135,17 @@ def convert_zarr_to_netcdf(
     expected_variable_count: int | None = None,
 ) -> ConversionResult:
     """Convert one Zarr store to NetCDF and publish it atomically.
+
+    The Zarr store is opened without Dask and the NetCDF payload is appended
+    one data variable at a time. This avoids both failure modes observed during
+    GraphCast conversion benchmarking:
+
+    * chunks={} created a large Dask task graph and was much slower.
+    * a single no-Dask Dataset.to_netcdf() attempted to materialize the
+      full dataset and exceeded the worker memory limit.
+
+    Variable-by-variable writing keeps memory bounded while retaining the fast
+    no-Dask Zarr read path.
 
     The NetCDF is first written to a .partial path on the same filesystem,
     validated, and then atomically renamed to the destination. The source
@@ -109,24 +167,21 @@ def convert_zarr_to_netcdf(
     if partial.exists():
         partial.unlink()
 
+    # chunks=None is intentional. It bypasses Dask while preserving lazy reads
+    # through xarray's Zarr backend.
     ds = xr.open_zarr(
         source,
-        chunks={},
+        chunks=None,
         consolidated=consolidated,
     )
 
     try:
-        encoding = build_netcdf_encoding(
-            ds.data_vars,
-            compression_level=compression_level,
-        )
-
         start = time.perf_counter()
 
-        ds.to_netcdf(
+        _write_netcdf_variable_stream(
+            ds,
             partial,
-            engine="netcdf4",
-            encoding=encoding,
+            compression_level=compression_level,
         )
 
         encoding_seconds = time.perf_counter() - start
