@@ -10,8 +10,11 @@ The current implementation focuses on reproducible GraphCast Operational experim
 
 The production experiment is defined in `config/graphcast_operational.yaml`.
 
-- Production initialization period: 2024-10-01 through 2025-04-30
+- Production period: 2015-10-01 through 2025-04-30
+- Seasonal filter: October through April only
 - Initialization days: Tuesday and Friday
+- Total initializations: 607
+- Seasons: 2015-16 through 2024-25
 - Forecast lead: 42 days
 - Temporal resolution: 6 hours
 - Lead times per forecast: 169, including lead time 0
@@ -19,6 +22,8 @@ The production experiment is defined in `config/graphcast_operational.yaml`.
   - Surface: `msl`, `t2m`, `tp06`, `u10m`, `v10m`
   - Pressure levels: 50, 100, 150, 200, 250, 300, 400, 500, 600, 700, 850, 925, 1000 hPa
   - Pressure-level fields: temperature (`t`), zonal wind (`u`), meridional wind (`v`), specific humidity (`q`), geopotential (`z`)
+
+The YAML includes `validation.expected_initializations: 607`. Configuration loading fails before any forecast is launched if the date, weekday, or month filters no longer produce exactly 607 initialization dates.
 
 The 42-day rollout is an experimental S2S evaluation setup. Later-lead skill must be evaluated rather than assumed from GraphCast's conventional medium-range use.
 
@@ -52,7 +57,7 @@ The production producer uses Earth2Studio's `AsyncZarrBackend` with a four-threa
 
 Lead-time sharding remains disabled (`shard_lead_times: 1`). Benchmarking showed that four-lead-time sharding did not improve wall-clock time for this workload.
 
-The converter runs independently on a CPU node as one manager process with a bounded process pool. The manager alone scans `.ready` markers and submits each ready Zarr to at most one worker. Production uses 12 converter workers so NetCDF compression has enough aggregate throughput to keep up with the two GPU producers while retaining headroom for filesystem and compression variability.
+The converter runs independently on a CPU node as one manager process with a bounded process pool. The manager alone scans `.ready` markers and submits each ready Zarr to at most one worker. Production is configured for 12 converter workers to provide throughput headroom relative to the two GPU producers. Actual aggregate conversion throughput depends on the CPU node assigned by Slurm and on concurrent Lustre I/O.
 
 Sapelo2 benchmarking showed that reading staged Zarr directly from shared `/scratch` is preferable to first copying it to node-local `/lscratch` for this conversion path. The reusable conversion logic is isolated in `scripts/netcdf_conversion.py`.
 
@@ -140,9 +145,10 @@ Research settings live in YAML rather than in the Python scripts:
 
 ```yaml
 experiment:
-  start_date: "2024-10-01"
+  start_date: "2015-10-01"
   end_date: "2025-04-30"
   init_weekdays: [Tuesday, Friday]
+  init_months: [10, 11, 12, 1, 2, 3, 4]
   forecast_days: 42
   hours_per_step: 6
 
@@ -156,17 +162,33 @@ output:
 converter:
   poll_seconds: 5
   workers: 12
+
+validation:
+  expected_variable_count: 70
+  expected_initializations: 607
 ```
 
-Slurm resources remain in the `.slurm` files because they describe scheduler resources rather than the experiment itself. The converter currently requests:
+Slurm resources remain in the `.slurm` files because they describe scheduler resources rather than the experiment itself.
+
+Forecast job:
+
+```text
+2 x L40S
+2 tasks
+8 CPUs per task
+128 GiB RAM
+30 hours walltime
+```
+
+Converter job:
 
 ```text
 12 CPUs
 48 GiB RAM
-24 hours walltime
+36 hours walltime
 ```
 
-The extra memory headroom is intentional to reduce the risk of an OOM termination during a long multi-process production conversion.
+The converter memory and walltime include deliberate headroom to reduce the risk that a long 607-initialization production run is lost to an OOM or modestly slower-than-benchmarked conversion throughput.
 
 ## Repository layout
 
