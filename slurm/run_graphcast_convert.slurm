@@ -4,9 +4,9 @@
 #SBATCH --partition=batch
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=2
-#SBATCH --mem=32G
-#SBATCH --time=04:00:00
+#SBATCH --cpus-per-task=12
+#SBATCH --mem=48G
+#SBATCH --time=24:00:00
 #SBATCH --output=graphcast-convert-%j.out
 #SBATCH --error=graphcast-convert-%j.err
 
