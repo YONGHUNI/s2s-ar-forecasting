@@ -14,6 +14,7 @@ The experiment is defined in `config/graphcast_operational.yaml`.
 - Baseline development config: `config/graphcast_test10.yaml` (10 initializations, synchronous Zarr)
 - Async-I/O development config: `config/graphcast_test10_async.yaml` (same 10 initializations, AsyncZarrBackend)
 - Direct-scratch benchmark: `config/graphcast_test4_async_scratch.yaml` (4 initializations, AsyncZarrBackend writes directly into shared `/scratch` staging)
+- Lead-time sharding benchmark: `config/graphcast_test4_async_scratch_shard4.yaml` (same direct-scratch setup with `shard_lead_times: 4`)
 - Initialization days: Tuesday and Friday
 - Forecast lead: 42 days
 - Temporal resolution: 6 hours
@@ -92,6 +93,9 @@ CONFIG=config/graphcast_test10_async.yaml bash submit_graphcast_pipeline.sh
 
 # 4-initialization direct-/scratch async benchmark
 CONFIG=config/graphcast_test4_async_scratch.yaml bash submit_graphcast_pipeline.sh
+
+# same benchmark with lead-time sharding (4 lead times per shard)
+CONFIG=config/graphcast_test4_async_scratch_shard4.yaml bash submit_graphcast_pipeline.sh
 ```
 
 Each submission creates `logs/YYYYMMDD_HHMMSS/` under the repository root. Forecast and converter stdout/stderr are combined into `graphcast-forecast-<jobid>.log` and `graphcast-convert-<jobid>.log`; Python status lines also include wall-clock timestamps and the Slurm job ID.
@@ -173,7 +177,8 @@ The YAML controls dates, forecast length, variables, paths, and NetCDF compressi
 │   ├── graphcast_operational.yaml
 │   ├── graphcast_test10.yaml
 │   ├── graphcast_test10_async.yaml
-│   └── graphcast_test4_async_scratch.yaml
+│   ├── graphcast_test4_async_scratch.yaml
+│   └── graphcast_test4_async_scratch_shard4.yaml
 ├── scripts/
 │   ├── graphcast_config.py
 │   ├── netcdf_conversion.py
