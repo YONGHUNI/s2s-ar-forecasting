@@ -8,13 +8,9 @@ The current implementation focuses on reproducible GraphCast Operational experim
 
 ## Current GraphCast experiment
 
-The experiment is defined in `config/graphcast_operational.yaml`.
+The production experiment is defined in `config/graphcast_operational.yaml`.
 
 - Production initialization period: 2024-10-01 through 2025-04-30
-- Baseline development config: `config/graphcast_test10.yaml` (10 initializations, synchronous Zarr)
-- Async-I/O development config: `config/graphcast_test10_async.yaml` (same 10 initializations, AsyncZarrBackend)
-- Direct-scratch benchmark: `config/graphcast_test4_async_scratch.yaml` (4 initializations, AsyncZarrBackend writes directly into shared `/scratch` staging)
-- Lead-time sharding benchmark: `config/graphcast_test4_async_scratch_shard4.yaml` (same direct-scratch setup with `shard_lead_times: 4`)
 - Initialization days: Tuesday and Friday
 - Forecast lead: 42 days
 - Temporal resolution: 6 hours
@@ -26,21 +22,24 @@ The experiment is defined in `config/graphcast_operational.yaml`.
 
 The 42-day rollout is an experimental S2S evaluation setup. Later-lead skill must be evaluated rather than assumed from GraphCast's conventional medium-range use.
 
-## Pipeline
+## Optimized production pipeline
 
 GPU inference and NetCDF conversion are separated so compression does not keep the L40S GPUs idle.
 
 ```text
 hu_p GPU job (2 x L40S)
-  producer 0 ─ GraphCast ─ Zarr ─┐
-  producer 1 ─ GraphCast ─ Zarr ─┼─> /scratch staging + .ready marker
-                                  │
-                                  v
+  producer 0 ─ GraphCast ─┐
+                           ├─> async Zarr writes directly to /scratch staging
+  producer 1 ─ GraphCast ─┘                         + .ready marker
+                                                    |
+                                                    v
 batch CPU job
   converter manager
-    ├─ scans shared .ready queue on /scratch
-    ├─ process 1 ─ Zarr -> NetCDF
-    └─ process 2 ─ Zarr -> NetCDF
+    └─ bounded ProcessPoolExecutor (12 workers)
+         ├─ worker 1  ─ Zarr -> NetCDF (zlib level 2 + shuffle)
+         ├─ worker 2  ─ Zarr -> NetCDF
+         ├─ ...
+         └─ worker 12 ─ Zarr -> NetCDF
 
   each worker:
     ─ reads staged Zarr directly from /scratch
@@ -49,11 +48,15 @@ batch CPU job
     ─ manager removes staged Zarr + .ready after success
 ```
 
-The producer can use either the synchronous `ZarrBackend` or Earth2Studio's `AsyncZarrBackend`. The async test configuration uses non-blocking writes with a four-thread I/O pool so per-step Zarr writes can overlap model execution. It explicitly calls `close()` before publishing so all pending writes are drained first. `output.write_mode=local_then_stage` writes on `/lscratch` and then copies to shared staging; `output.write_mode=direct_staging` writes the temporary Zarr directly under shared `/scratch` staging and atomically renames it before creating the `.ready` marker. Lead-time sharding remains disabled (`shard_lead_times: 1`) so the direct-scratch A/B test changes only the storage path.
+The production producer uses Earth2Studio's `AsyncZarrBackend` with a four-thread I/O pool. Writes go directly to a temporary Zarr under shared `/scratch`, pending writes are drained with `close()`, and the completed store is atomically renamed before the `.ready` marker is created.
 
-The producer keeps the GPU allocation focused on inference. The converter runs independently on a regular CPU node as one manager process with a bounded process pool. The manager alone scans `.ready` markers and submits each ready Zarr to at most one worker, which avoids duplicate work inside the job while keeping two independent conversions in flight when data are available. If both workers are busy, additional ready Zarr stores remain queued on the shared filesystem until a slot opens.
+Lead-time sharding remains disabled (`shard_lead_times: 1`). Benchmarking showed that four-lead-time sharding did not improve wall-clock time for this workload.
 
-Sapelo2 benchmarking showed that the tested batch node could read staged Zarr directly from shared `/scratch` faster than copying it to node-local `/lscratch`, so converter workers read staging in place. The reusable conversion logic is isolated in `scripts/netcdf_conversion.py`; the GraphCast-specific manager only handles discovery, queueing, validation expectations, cleanup, and restart behavior. Compression level 0 is used by the 10-initialization development config because full-file uncompressed conversion was dramatically faster than zlib level 1 in testing.
+The converter runs independently on a CPU node as one manager process with a bounded process pool. The manager alone scans `.ready` markers and submits each ready Zarr to at most one worker. Production uses 12 converter workers so NetCDF compression has enough aggregate throughput to keep up with the two GPU producers while retaining headroom for filesystem and compression variability.
+
+Sapelo2 benchmarking showed that reading staged Zarr directly from shared `/scratch` is preferable to first copying it to node-local `/lscratch` for this conversion path. The reusable conversion logic is isolated in `scripts/netcdf_conversion.py`.
+
+NetCDF production uses zlib compression level 2 with shuffle. A single compression worker on an AMD EPYC TurinDense node converted one approximately 45.8 GiB uncompressed NetCDF in about 15 minutes 11 seconds and peaked at about 1.6 GiB resident memory. Production therefore uses process-level parallelism rather than trying to multithread a single netCDF4/zlib encoding task.
 
 ## Environment
 
@@ -84,18 +87,6 @@ Submit from the repository root:
 
 ```bash
 bash submit_graphcast_pipeline.sh
-
-# 10-initialization synchronous baseline
-CONFIG=config/graphcast_test10.yaml bash submit_graphcast_pipeline.sh
-
-# same 10 initializations with asynchronous Zarr writes
-CONFIG=config/graphcast_test10_async.yaml bash submit_graphcast_pipeline.sh
-
-# 4-initialization direct-/scratch async benchmark
-CONFIG=config/graphcast_test4_async_scratch.yaml bash submit_graphcast_pipeline.sh
-
-# same benchmark with lead-time sharding (4 lead times per shard)
-CONFIG=config/graphcast_test4_async_scratch_shard4.yaml bash submit_graphcast_pipeline.sh
 ```
 
 Each submission creates `logs/YYYYMMDD_HHMMSS/` under the repository root. Forecast and converter stdout/stderr are combined into `graphcast-forecast-<jobid>.log` and `graphcast-convert-<jobid>.log`; Python status lines also include wall-clock timestamps and the Slurm job ID.
@@ -103,7 +94,7 @@ Each submission creates `logs/YYYYMMDD_HHMMSS/` under the repository root. Forec
 This submits:
 
 1. `slurm/run_graphcast_forecast.slurm`: two GraphCast GPU producers on `hu_p`.
-2. `slurm/run_graphcast_convert.slurm`: one CPU-side converter manager on `batch`, with a configurable local process pool.
+2. `slurm/run_graphcast_convert.slurm`: one CPU-side converter manager on `batch`, with 12 converter worker processes.
 
 The converter job uses Slurm's `after` dependency so it becomes eligible after the producer job starts rather than waiting for all GPU inference to finish.
 
@@ -133,7 +124,7 @@ Default paths:
     final NetCDF files
 ```
 
-A Zarr forecast is eligible for conversion only after its shared copy finishes and the corresponding `.ready` marker is created. NetCDF publication uses a `.partial` file followed by an atomic rename.
+A Zarr forecast is eligible for conversion only after its direct-staging write finishes and the corresponding `.ready` marker is created. NetCDF publication uses a `.partial` file followed by an atomic rename.
 
 On restart:
 
@@ -156,29 +147,33 @@ experiment:
   hours_per_step: 6
 
 output:
-  compression_level: 1
-  zarr_backend: sync
-  write_mode: local_then_stage
+  compression_level: 2
+  zarr_backend: async
+  write_mode: direct_staging
   async_pool_size: 4
   shard_lead_times: 1
 
 converter:
   poll_seconds: 5
-  workers: 2
+  workers: 12
 ```
 
-The YAML controls dates, forecast length, variables, paths, and NetCDF compression. Slurm resources remain in the `.slurm` files because they describe scheduler resources rather than the experiment itself.
+Slurm resources remain in the `.slurm` files because they describe scheduler resources rather than the experiment itself. The converter currently requests:
+
+```text
+12 CPUs
+48 GiB RAM
+24 hours walltime
+```
+
+The extra memory headroom is intentional to reduce the risk of an OOM termination during a long multi-process production conversion.
 
 ## Repository layout
 
 ```text
 .
 ├── config/
-│   ├── graphcast_operational.yaml
-│   ├── graphcast_test10.yaml
-│   ├── graphcast_test10_async.yaml
-│   ├── graphcast_test4_async_scratch.yaml
-│   └── graphcast_test4_async_scratch_shard4.yaml
+│   └── graphcast_operational.yaml
 ├── scripts/
 │   ├── graphcast_config.py
 │   ├── netcdf_conversion.py
