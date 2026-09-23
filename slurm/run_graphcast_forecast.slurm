@@ -7,7 +7,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --gres=gpu:L40S:2
 #SBATCH --mem=128G
-#SBATCH --time=16:00:00
+#SBATCH --time=30:00:00
 #SBATCH --output=graphcast-forecast-%j.out
 #SBATCH --error=graphcast-forecast-%j.err
 
