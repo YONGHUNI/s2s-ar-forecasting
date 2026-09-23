@@ -1,9 +1,17 @@
 experiment:
-  start_date: "2024-10-01"
+  start_date: "2015-10-01"
   end_date: "2025-04-30"
   init_weekdays:
     - Tuesday
     - Friday
+  init_months:
+    - 10
+    - 11
+    - 12
+    - 1
+    - 2
+    - 3
+    - 4
   forecast_days: 42
   hours_per_step: 6
 
@@ -57,3 +65,4 @@ converter:
 
 validation:
   expected_variable_count: 70
+  expected_initializations: 607
