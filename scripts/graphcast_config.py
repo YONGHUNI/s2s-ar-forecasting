@@ -35,6 +35,7 @@ class GraphCastConfig:
     expected_variable_count: int
     compression_level: int
     zarr_backend: str
+    write_mode: str
     async_pool_size: int
     shard_lead_times: int
     local_root: Path
@@ -143,6 +144,13 @@ def load_graphcast_config(path: str | Path) -> GraphCastConfig:
     if zarr_backend not in {"sync", "async"}:
         raise ValueError("output.zarr_backend must be 'sync' or 'async'")
 
+    write_mode = str(output.get("write_mode", "local_then_stage")).strip().lower()
+
+    if write_mode not in {"local_then_stage", "direct_staging"}:
+        raise ValueError(
+            "output.write_mode must be 'local_then_stage' or 'direct_staging'"
+        )
+
     async_pool_size = int(output.get("async_pool_size", 4))
 
     if async_pool_size < 1:
@@ -176,6 +184,7 @@ def load_graphcast_config(path: str | Path) -> GraphCastConfig:
         expected_variable_count=expected_variable_count,
         compression_level=compression_level,
         zarr_backend=zarr_backend,
+        write_mode=write_mode,
         async_pool_size=async_pool_size,
         shard_lead_times=shard_lead_times,
         local_root=_expand_path(output["local_root"]),
