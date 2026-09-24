@@ -53,7 +53,7 @@ batch CPU job
     ─ manager removes staged Zarr + .ready after success
 ```
 
-The production producer uses Earth2Studio's `AsyncZarrBackend` with a four-thread I/O pool. Writes go directly to a temporary Zarr under shared `/scratch`, pending writes are drained with `close()`, and the completed store is atomically renamed before the `.ready` marker is created.
+The production producer uses Earth2Studio's `AsyncZarrBackend` with a four-thread I/O pool. Writes go directly to a temporary Zarr under shared `/scratch`, pending writes are drained before the backend's per-initialization event loops are stopped and closed, and the completed store is atomically renamed before the `.ready` marker is created.
 
 Lead-time sharding remains disabled (`shard_lead_times: 1`). Benchmarking showed that four-lead-time sharding did not improve wall-clock time for this workload.
 
@@ -101,7 +101,7 @@ This submits:
 1. `slurm/run_graphcast_forecast.slurm`: two GraphCast GPU producers on `hu_p`.
 2. `slurm/run_graphcast_convert.slurm`: one CPU-side converter manager on `batch`, with 12 converter worker processes.
 
-The converter job uses Slurm's `after` dependency so it becomes eligible after the producer job starts rather than waiting for all GPU inference to finish.
+The converter job uses Slurm's `after` dependency so it becomes eligible after the producer job starts rather than waiting for all GPU inference to finish. The submission wrapper also passes the producer job ID to the converter; once the producer has left Slurm's active queue and the converter has no active or ready work remaining, the converter exits instead of polling indefinitely.
 
 Manual submission:
 
@@ -111,6 +111,7 @@ producer_job=${producer_job%%;*}
 
 sbatch \
   --dependency="after:${producer_job}" \
+  --export="ALL,CONFIG=config/graphcast_operational.yaml,PRODUCER_JOB_ID=${producer_job}" \
   slurm/run_graphcast_convert.slurm
 ```
 
