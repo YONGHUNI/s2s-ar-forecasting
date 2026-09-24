@@ -83,6 +83,8 @@ def close_async_backend(io):
     except BaseException as exc:
         close_error = exc
     finally:
+        drain_elapsed = time.perf_counter() - start
+        shutdown_start = time.perf_counter()
         loops = tuple(getattr(io, "loop_pool", ()))
 
         for loop in loops:
@@ -106,12 +108,12 @@ def close_async_backend(io):
             if not loop.is_running() and not loop.is_closed():
                 loop.close()
 
-    elapsed = time.perf_counter() - start
+    shutdown_elapsed = time.perf_counter() - shutdown_start
 
     if close_error is not None:
         raise close_error
 
-    return elapsed
+    return drain_elapsed, shutdown_elapsed
 
 
 def make_io(cfg, local: Path, init_date):
@@ -207,16 +209,21 @@ def main():
             remove(partial)
             continue
 
+        path_cleanup_start = time.perf_counter()
         remove(local)
         remove(partial)
         remove(staged)
         remove(ready)
+        path_cleanup = time.perf_counter() - path_cleanup_start
 
         write_target = local if cfg.write_mode == "local_then_stage" else partial
+        backend_setup_start = time.perf_counter()
         io = make_io(cfg, write_target, init_date)
+        backend_setup = time.perf_counter() - backend_setup_start
 
         start = time.perf_counter()
         drain = 0.0
+        loop_shutdown = 0.0
         inference_error = None
 
         try:
@@ -237,7 +244,7 @@ def main():
 
             if cfg.zarr_backend == "async":
                 try:
-                    drain = close_async_backend(io)
+                    drain, loop_shutdown = close_async_backend(io)
                 except BaseException as cleanup_exc:
                     if inference_error is None:
                         raise
@@ -246,10 +253,14 @@ def main():
                         producer=args.worker,
                     )
 
+        size_scan_start = time.perf_counter()
+        zarr_size = size_gib(write_target)
+        size_scan = time.perf_counter() - size_scan_start
+
         log(
             f"Inference loop: {duration(inference_loop)}; "
             f"Zarr drain: {duration(drain)}; "
-            f"Zarr: {size_gib(write_target):.2f} GiB",
+            f"Zarr: {zarr_size:.2f} GiB",
             producer=args.worker,
         )
         log(f"Process after I/O cleanup: {process_status()}", producer=args.worker)
@@ -272,6 +283,18 @@ def main():
                 f"Direct /scratch finalize in {duration(stage)}",
                 producer=args.worker,
             )
+
+        log(
+            "Timing detail: "
+            f"path_cleanup={path_cleanup:.3f}s; "
+            f"backend_setup={backend_setup:.3f}s; "
+            f"inference={inference_loop:.3f}s; "
+            f"zarr_drain={drain:.3f}s; "
+            f"loop_shutdown={loop_shutdown:.3f}s; "
+            f"size_scan={size_scan:.3f}s; "
+            f"finalize={stage:.3f}s",
+            producer=args.worker,
+        )
 
 
 if __name__ == "__main__":
