@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 import os
 import shutil
-import subprocess
 import time
 from collections import OrderedDict
 from datetime import datetime
@@ -32,11 +31,6 @@ def duration(seconds):
     m, s = divmod(int(seconds), 60)
     h, m = divmod(m, 60)
     return f"{h}h {m:02d}m {s:02d}s" if h else f"{m}m {s:02d}s"
-
-
-def size_gib(path: Path):
-    out = subprocess.check_output(["du", "-s", "-B1", str(path)], text=True)
-    return int(out.split()[0]) / 1024**3
 
 
 def remove(path: Path):
@@ -253,14 +247,9 @@ def main():
                         producer=args.worker,
                     )
 
-        size_scan_start = time.perf_counter()
-        zarr_size = size_gib(write_target)
-        size_scan = time.perf_counter() - size_scan_start
-
         log(
             f"Inference loop: {duration(inference_loop)}; "
-            f"Zarr drain: {duration(drain)}; "
-            f"Zarr: {zarr_size:.2f} GiB",
+            f"Zarr drain: {duration(drain)}",
             producer=args.worker,
         )
         log(f"Process after I/O cleanup: {process_status()}", producer=args.worker)
@@ -291,7 +280,6 @@ def main():
             f"inference={inference_loop:.3f}s; "
             f"zarr_drain={drain:.3f}s; "
             f"loop_shutdown={loop_shutdown:.3f}s; "
-            f"size_scan={size_scan:.3f}s; "
             f"finalize={stage:.3f}s",
             producer=args.worker,
         )
