@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import os
 import shutil
+import subprocess
 import time
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from dataclasses import dataclass
@@ -39,6 +40,33 @@ def remove(path: Path):
         shutil.rmtree(path)
     elif path.exists():
         path.unlink()
+
+
+def producer_is_active(job_id: str | None) -> bool | None:
+    """Return whether the producer is still present in Slurm's active queue."""
+
+    if not job_id:
+        return None
+
+    try:
+        result = subprocess.run(
+            ["squeue", "-h", "-j", job_id, "-o", "%T"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError as exc:
+        log(f"Could not query producer job {job_id}: {exc}")
+        return None
+
+    if result.returncode != 0:
+        log(
+            f"Could not query producer job {job_id}: "
+            f"squeue exited {result.returncode}"
+        )
+        return None
+
+    return bool(result.stdout.strip())
 
 
 def build_jobs(cfg) -> list[ConversionJob]:
@@ -79,6 +107,7 @@ def main():
     cfg.staging_root.mkdir(parents=True, exist_ok=True)
     cfg.final_root.mkdir(parents=True, exist_ok=True)
 
+    producer_job_id = os.environ.get("PRODUCER_JOB_ID")
     jobs = build_jobs(cfg)
     active = {}
 
@@ -86,7 +115,8 @@ def main():
         f"Converter manager: {len(jobs)} initializations; "
         f"workers={cfg.converter_workers}; "
         f"poll={cfg.poll_seconds}s; "
-        f"compression level={cfg.compression_level}"
+        f"compression level={cfg.compression_level}; "
+        f"producer_job={producer_job_id or 'untracked'}"
     )
 
     # One manager process owns discovery/submission. Worker processes never
@@ -161,6 +191,16 @@ def main():
                     return_when=FIRST_COMPLETED,
                 )
             else:
+                producer_active = producer_is_active(producer_job_id)
+
+                if producer_active is False:
+                    log(
+                        f"Producer job {producer_job_id} is no longer active and "
+                        f"no conversion work remains; exiting "
+                        f"({completed}/{len(jobs)} complete)."
+                    )
+                    break
+
                 log(
                     f"Waiting for ready Zarr files "
                     f"({completed}/{len(jobs)} complete)..."
