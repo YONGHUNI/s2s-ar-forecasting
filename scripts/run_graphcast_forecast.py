@@ -46,6 +46,74 @@ def remove(path: Path):
         path.unlink()
 
 
+def process_status():
+    values = {}
+
+    try:
+        with Path("/proc/self/status").open(encoding="utf-8") as stream:
+            for line in stream:
+                key, _, value = line.partition(":")
+                if key in {"VmRSS", "VmSize", "Threads"}:
+                    values[key] = value.strip()
+    except OSError:
+        return "RSS=?; VMS=?; threads=?"
+
+    def gib(key):
+        value = values.get(key)
+        if value is None:
+            return None
+        return int(value.split()[0]) / 1024**2
+
+    rss = gib("VmRSS")
+    vms = gib("VmSize")
+    threads = values.get("Threads", "?")
+    rss_text = "?" if rss is None else f"{rss:.2f} GiB"
+    vms_text = "?" if vms is None else f"{vms:.2f} GiB"
+    return f"RSS={rss_text}; VMS={vms_text}; threads={threads}"
+
+
+def close_async_backend(io):
+    """Drain AsyncZarr writes and stop its per-instance event-loop threads."""
+
+    start = time.perf_counter()
+    close_error = None
+
+    try:
+        io.close()
+    except BaseException as exc:
+        close_error = exc
+    finally:
+        loops = tuple(getattr(io, "loop_pool", ()))
+
+        for loop in loops:
+            if loop.is_running() and not loop.is_closed():
+                try:
+                    loop.call_soon_threadsafe(loop.stop)
+                except RuntimeError:
+                    pass
+
+        deadline = time.monotonic() + 5.0
+        while any(loop.is_running() for loop in loops):
+            if time.monotonic() >= deadline:
+                if close_error is None:
+                    close_error = RuntimeError(
+                        "AsyncZarr event-loop threads did not stop within 5 seconds"
+                    )
+                break
+            time.sleep(0.01)
+
+        for loop in loops:
+            if not loop.is_running() and not loop.is_closed():
+                loop.close()
+
+    elapsed = time.perf_counter() - start
+
+    if close_error is not None:
+        raise close_error
+
+    return elapsed
+
+
 def make_io(cfg, local: Path, init_date):
     if cfg.zarr_backend == "sync":
         return ZarrBackend(
@@ -115,6 +183,7 @@ def main():
     model = GraphCastOperational.load_model(pkg)
     data = ARCO()
     log(f"Model loaded in {duration(time.perf_counter()-t0)}", producer=args.worker)
+    log(f"Process after model load: {process_status()}", producer=args.worker)
 
     for n, init_date in enumerate(mine, 1):
         base = output_basename(cfg, init_date)
@@ -147,22 +216,35 @@ def main():
         io = make_io(cfg, write_target, init_date)
 
         start = time.perf_counter()
-        run.deterministic(
-            [datetime.combine(init_date, datetime.min.time())],
-            cfg.steps,
-            model,
-            data,
-            io,
-            output_coords={"variable": np.asarray(cfg.variables)},
-            device=cfg.device,
-        )
-        inference_loop = time.perf_counter() - start
-
         drain = 0.0
-        if cfg.zarr_backend == "async":
-            start = time.perf_counter()
-            io.close()
-            drain = time.perf_counter() - start
+        inference_error = None
+
+        try:
+            run.deterministic(
+                [datetime.combine(init_date, datetime.min.time())],
+                cfg.steps,
+                model,
+                data,
+                io,
+                output_coords={"variable": np.asarray(cfg.variables)},
+                device=cfg.device,
+            )
+        except BaseException as exc:
+            inference_error = exc
+            raise
+        finally:
+            inference_loop = time.perf_counter() - start
+
+            if cfg.zarr_backend == "async":
+                try:
+                    drain = close_async_backend(io)
+                except BaseException as cleanup_exc:
+                    if inference_error is None:
+                        raise
+                    log(
+                        f"Async Zarr cleanup also failed: {cleanup_exc!r}",
+                        producer=args.worker,
+                    )
 
         log(
             f"Inference loop: {duration(inference_loop)}; "
@@ -170,6 +252,7 @@ def main():
             f"Zarr: {size_gib(write_target):.2f} GiB",
             producer=args.worker,
         )
+        log(f"Process after I/O cleanup: {process_status()}", producer=args.worker)
 
         start = time.perf_counter()
         if cfg.write_mode == "local_then_stage":
