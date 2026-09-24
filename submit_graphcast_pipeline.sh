@@ -31,7 +31,7 @@ converter_raw="$(
         --dependency="after:${producer_job}" \
         --output="$LOG_DIR/graphcast-convert-%j.log" \
         --error="$LOG_DIR/graphcast-convert-%j.log" \
-        --export="ALL,CONFIG=$CONFIG" \
+        --export="ALL,CONFIG=$CONFIG,PRODUCER_JOB_ID=$producer_job" \
         slurm/run_graphcast_convert.slurm
 )"
 converter_job="${converter_raw%%;*}"
