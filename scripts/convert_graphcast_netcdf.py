@@ -50,7 +50,7 @@ def producer_is_active(job_id: str | None) -> bool | None:
 
     try:
         result = subprocess.run(
-            ["squeue", "-h", "-j", job_id, "-o", "%T"],
+            ["squeue", "-h", "-u", os.environ["USER"], "-o", "%A"],
             check=False,
             capture_output=True,
             text=True,
@@ -66,7 +66,7 @@ def producer_is_active(job_id: str | None) -> bool | None:
         )
         return None
 
-    return bool(result.stdout.strip())
+    return job_id in result.stdout.split()
 
 
 def build_jobs(cfg) -> list[ConversionJob]:
