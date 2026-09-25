@@ -194,6 +194,20 @@ def main():
                 producer_active = producer_is_active(producer_job_id)
 
                 if producer_active is False:
+                    final_ready = any(
+                        not job.final.exists()
+                        and job.ready.exists()
+                        and job.staged.exists()
+                        for job in jobs
+                    )
+
+                    if final_ready:
+                        log(
+                            f"Producer job {producer_job_id} is no longer active, "
+                            "but final ready Zarr work was detected; rescanning."
+                        )
+                        continue
+
                     log(
                         f"Producer job {producer_job_id} is no longer active and "
                         f"no conversion work remains; exiting "
