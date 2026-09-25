@@ -45,8 +45,9 @@ srun     --ntasks="$SLURM_NTASKS"     --cpus-per-task="$SLURM_CPUS_PER_TASK"    
         export OPENBLAS_NUM_THREADS="$SLURM_CPUS_PER_TASK"
         export MKL_NUM_THREADS="$SLURM_CPUS_PER_TASK"
         export NUMEXPR_NUM_THREADS="$SLURM_CPUS_PER_TASK"
+        export XLA_FLAGS=--xla_gpu_exclude_nondeterministic_ops
 
-        echo "Producer=$SLURM_PROCID CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES CONFIG=$CONFIG"
+        echo "Producer=$SLURM_PROCID CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES CONFIG=$CONFIG XLA_FLAGS=$XLA_FLAGS"
 
         pixi run -e graphcast             python scripts/run_graphcast_forecast.py             --config "$CONFIG"             --worker "$SLURM_PROCID"             --num-workers "$SLURM_NTASKS"
     '
