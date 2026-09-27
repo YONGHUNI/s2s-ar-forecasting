@@ -178,7 +178,7 @@ output:
   shard_lead_times: 1
 
 converter:
-  poll_seconds: 5
+  poll_seconds: 30
   workers: 12
 
 validation:
