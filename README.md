@@ -84,7 +84,7 @@ with the wrapper at:
 ~/.local/bin/nix
 ```
 
-The Nix shell keeps Pixi environments and transient caches on `/lscratch`, while the Earth2Studio model cache is kept under `/work/whlab/$USER`.
+The Nix shell keeps Pixi environments and node-local transient caches on `/lscratch`, while the Earth2Studio model cache is kept under `/work/whlab/$USER`. GraphCast Slurm jobs override the default JAX cache location with a shared `/scratch/$USER/weather-ai/jax-cache/<gpu-model>/` directory so persistent XLA compilation artifacts can be reused across jobs on different compute nodes. The GPU-model suffix is derived automatically from `nvidia-smi`, so new GPU types receive their own cache namespace without hard-coded model lists.
 
 ## Run on Sapelo2
 
