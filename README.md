@@ -102,7 +102,7 @@ This submits:
 1. `slurm/run_graphcast_forecast.slurm`: a `gpu_p` job array with 20 fixed logical shards (`0-19%8`), one H100 per array task, and at most eight concurrent producer tasks.
 2. `slurm/run_graphcast_convert.slurm`: one CPU-side converter manager on `batch`, with 12 converter worker processes.
 
-The converter is submitted immediately after the producer array rather than depending on the whole array's `after` condition. This lets NetCDF conversion begin as soon as `.ready` Zarr stores appear instead of waiting for every array element to start. The submission wrapper passes the producer array's base job ID to the converter. The converter checks Slurm's array base-job field and exits only after the producer array has left the active queue and no active or ready conversion work remains.
+The converter is submitted immediately after the producer array rather than depending on the whole array's `after` condition. This lets NetCDF conversion begin as soon as `.ready` Zarr stores appear instead of waiting for every array element to start. The submission wrapper passes the producer array's base job ID to the converter. The converter checks Slurm's array base-job field and exits only after the producer array has left the active queue and no active or ready conversion work remains. Because the CPU allocation can start long before scarce H100 producer tasks, the converter also has a lifecycle requeue guard: after 46 hours of a 48-hour allocation it stops accepting new conversions, drains any active workers, and requests a Slurm requeue if the producer is still active or ready conversion work remains. A normal completed lifecycle exits without requeue.
 
 Manual submission:
 
@@ -206,6 +206,7 @@ Converter job:
 12 CPUs
 48 GiB RAM
 48 hours walltime
+46-hour graceful lifecycle requeue threshold
 ```
 
 The producer shard count is intentionally fixed at 20 so restart/resume runs preserve the same date-to-worker mapping. The converter memory and walltime include deliberate headroom for queueing variation and slower-than-benchmarked conversion throughput.
