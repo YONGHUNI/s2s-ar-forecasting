@@ -95,7 +95,7 @@ Submit from the repository root:
 bash submit_graphcast_pipeline.sh
 ```
 
-Each submission creates `logs/YYYYMMDD_HHMMSS/` under the repository root. Forecast and converter stdout/stderr are combined into `graphcast-forecast-<jobid>.log` and `graphcast-convert-<jobid>.log`; Python status lines also include wall-clock timestamps and the Slurm job ID.
+Each submission creates `logs/YYYYMMDD_HHMMSS/` under the repository root. Forecast array stdout/stderr are combined per task in `graphcast-forecast-<array_jobid>_<taskid>.log`, while converter output is written to `graphcast-convert-<jobid>.log`; Python status lines also include wall-clock timestamps and the Slurm job ID.
 
 This submits:
 
