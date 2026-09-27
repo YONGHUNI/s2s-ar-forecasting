@@ -40,6 +40,13 @@ cd "$PROJECT"
 
 export CONFIG
 
+NUM_SHARDS=20
+if [[ "${SLURM_ARRAY_TASK_COUNT:-0}" -ne "$NUM_SHARDS" ]]; then
+    echo "Expected $NUM_SHARDS array tasks, got ${SLURM_ARRAY_TASK_COUNT:-unset}" >&2
+    exit 1
+fi
+export NUM_SHARDS
+
 srun     --ntasks="$SLURM_NTASKS"     --cpus-per-task="$SLURM_CPUS_PER_TASK"     --gpus-per-task=1     --gpu-bind=single:1     "$NIX" develop --command bash -c '
         set -euo pipefail
         export OMP_NUM_THREADS="$SLURM_CPUS_PER_TASK"
@@ -66,5 +73,5 @@ srun     --ntasks="$SLURM_NTASKS"     --cpus-per-task="$SLURM_CPUS_PER_TASK"    
             python scripts/run_graphcast_forecast.py \
             --config "$CONFIG" \
             --worker "$SLURM_ARRAY_TASK_ID" \
-            --num-workers "$SLURM_ARRAY_TASK_COUNT"
+            --num-workers "$NUM_SHARDS"
     '
