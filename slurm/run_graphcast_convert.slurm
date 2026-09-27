@@ -8,6 +8,7 @@
 #SBATCH --mem=48G
 #SBATCH --time=48:00:00
 #SBATCH --requeue
+#SBATCH --open-mode=append
 #SBATCH --output=graphcast-convert-%j.out
 #SBATCH --error=graphcast-convert-%j.err
 
