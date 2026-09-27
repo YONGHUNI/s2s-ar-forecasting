@@ -1,0 +1,68 @@
+experiment:
+  start_date: "2015-10-02"
+  end_date: "2015-10-02"
+  init_weekdays:
+    - Tuesday
+    - Friday
+  init_months:
+    - 10
+    - 11
+    - 12
+    - 1
+    - 2
+    - 3
+    - 4
+  forecast_days: 42
+  hours_per_step: 6
+
+model:
+  name: GraphCastOperational
+  device: cuda
+
+variables:
+  surface:
+    - msl
+    - t2m
+    - tp06
+    - u10m
+    - v10m
+
+  pressure_levels:
+    - 50
+    - 100
+    - 150
+    - 200
+    - 250
+    - 300
+    - 400
+    - 500
+    - 600
+    - 700
+    - 850
+    - 925
+    - 1000
+
+  pressure_variables:
+    - t
+    - u
+    - v
+    - q
+    - z
+
+output:
+  compression_level: 2
+  zarr_backend: async
+  write_mode: direct_staging
+  async_pool_size: 4
+  shard_lead_times: 1
+  local_root: "/lscratch/{user}/graphcast-benchmark-42d-h100-samearch-a"
+  staging_root: "/scratch/{user}/weather-ai/graphcast-benchmark-42d-h100-samearch-a/.staging"
+  final_root: "/scratch/{user}/weather-ai/graphcast-benchmark-42d-h100-samearch-a"
+
+converter:
+  poll_seconds: 5
+  workers: 12
+
+validation:
+  expected_variable_count: 70
+  expected_initializations: 1

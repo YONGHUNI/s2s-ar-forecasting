@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
-CONFIG="${CONFIG:-config/graphcast_operational.yaml}"
+CONFIG="${CONFIG:-config/graphcast_operational_deterministic.yaml}"
 RUN_ID="$(date +'%Y%m%d_%H%M%S')"
 LOG_DIR="$ROOT/logs/$RUN_ID"
 mkdir -p "$LOG_DIR"
@@ -18,8 +18,8 @@ mkdir -p "$LOG_DIR"
 producer_raw="$(
     sbatch \
         --parsable \
-        --output="$LOG_DIR/graphcast-forecast-%j.log" \
-        --error="$LOG_DIR/graphcast-forecast-%j.log" \
+        --output="$LOG_DIR/graphcast-forecast-%A_%a.log" \
+        --error="$LOG_DIR/graphcast-forecast-%A_%a.log" \
         --export="ALL,CONFIG=$CONFIG" \
         slurm/run_graphcast_forecast.slurm
 )"
@@ -28,10 +28,9 @@ producer_job="${producer_raw%%;*}"
 converter_raw="$(
     sbatch \
         --parsable \
-        --dependency="after:${producer_job}" \
         --output="$LOG_DIR/graphcast-convert-%j.log" \
         --error="$LOG_DIR/graphcast-convert-%j.log" \
-        --export="ALL,CONFIG=$CONFIG" \
+        --export="ALL,CONFIG=$CONFIG,PRODUCER_JOB_ID=$producer_job" \
         slurm/run_graphcast_convert.slurm
 )"
 converter_job="${converter_raw%%;*}"

@@ -19,6 +19,81 @@ class ConversionResult:
     output_size_bytes: int
 
 
+_SURFACE_METADATA = {
+    "msl": {
+        "long_name": "Mean sea level pressure",
+        "standard_name": "air_pressure_at_mean_sea_level",
+        "units": "Pa",
+    },
+    "t2m": {
+        "long_name": "2 metre temperature",
+        "units": "K",
+    },
+    "tp06": {
+        "long_name": "6-hour total precipitation",
+        "units": "m",
+    },
+    "u10m": {
+        "long_name": "10 metre U wind component",
+        "units": "m s**-1",
+    },
+    "v10m": {
+        "long_name": "10 metre V wind component",
+        "units": "m s**-1",
+    },
+}
+
+_PRESSURE_METADATA = {
+    "t": {
+        "long_name": "Temperature",
+        "standard_name": "air_temperature",
+        "units": "K",
+    },
+    "u": {
+        "long_name": "U component of wind",
+        "units": "m s**-1",
+    },
+    "v": {
+        "long_name": "V component of wind",
+        "units": "m s**-1",
+    },
+    "q": {
+        "long_name": "Specific humidity",
+        "standard_name": "specific_humidity",
+        "units": "kg kg**-1",
+    },
+    "z": {
+        "long_name": "Geopotential",
+        "standard_name": "geopotential",
+        "units": "m**2 s**-2",
+    },
+}
+
+
+def graphcast_variable_attrs(name: str) -> dict[str, object]:
+    """Return scientific metadata inherited from the ARCO ERA5 source.
+
+    Earth2Studio's ARCO data source copies numerical values into a new
+    DataArray without propagating the source Zarr attributes. Keep the
+    authoritative physical units and applicable descriptive metadata here,
+    while expressing pressure levels in the flattened GraphCast variable
+    names used by this pipeline.
+    """
+
+    if name in _SURFACE_METADATA:
+        return dict(_SURFACE_METADATA[name])
+
+    prefix = name[:1]
+    level_text = name[1:]
+    if prefix in _PRESSURE_METADATA and level_text.isdigit():
+        attrs = dict(_PRESSURE_METADATA[prefix])
+        attrs["pressure_level"] = int(level_text)
+        attrs["pressure_level_units"] = "hPa"
+        return attrs
+
+    raise ValueError(f"No GraphCast metadata defined for variable: {name}")
+
+
 def build_netcdf_encoding(
     data_vars,
     compression_level: int = 0,
@@ -116,12 +191,15 @@ def _write_netcdf_variable_stream(
     # its dimensions/attributes but does not repeatedly attach all coordinates
     # to every temporary Dataset.
     for name in ds.data_vars:
-        variable_ds = xr.Dataset({str(name): ds[name].variable})
+        variable_name = str(name)
+        variable = ds[name].variable.copy(deep=False)
+        variable.attrs.update(graphcast_variable_attrs(variable_name))
+        variable_ds = xr.Dataset({variable_name: variable})
         variable_ds.to_netcdf(
             partial,
             mode="a",
             engine="netcdf4",
-            encoding={str(name): encoding[str(name)]},
+            encoding={variable_name: encoding[variable_name]},
         )
 
 

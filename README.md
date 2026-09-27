@@ -8,7 +8,7 @@ The current implementation focuses on reproducible GraphCast Operational experim
 
 ## Current GraphCast experiment
 
-The production experiment is defined in `config/graphcast_operational.yaml`.
+The production experiment is defined in `config/graphcast_operational_deterministic.yaml`.
 
 - Production period: 2015-10-01 through 2025-04-30
 - Seasonal filter: October through April only
@@ -29,15 +29,16 @@ The 42-day rollout is an experimental S2S evaluation setup. Later-lead skill mus
 
 ## Optimized production pipeline
 
-GPU inference and NetCDF conversion are separated so compression does not keep the L40S GPUs idle.
+GPU inference and NetCDF conversion are separated so compression does not keep H100 GPUs idle.
 
 ```text
-hu_p GPU job (2 x L40S)
-  producer 0 ─ GraphCast ─┐
-                           ├─> async Zarr writes directly to /scratch staging
-  producer 1 ─ GraphCast ─┘                         + .ready marker
-                                                    |
-                                                    v
+gpu_p producer array: 20 fixed logical shards, at most 8 concurrent tasks
+  array task 0  ─ 1 x H100 ─ GraphCast ─┐
+  array task 1  ─ 1 x H100 ─ GraphCast ─┤
+  ...                                    ├─> async Zarr writes directly to /scratch staging
+  array task 19 ─ 1 x H100 ─ GraphCast ─┘                         + .ready marker
+                                                                    |
+                                                                    v
 batch CPU job
   converter manager
     └─ bounded ProcessPoolExecutor (12 workers)
@@ -53,11 +54,11 @@ batch CPU job
     ─ manager removes staged Zarr + .ready after success
 ```
 
-The production producer uses Earth2Studio's `AsyncZarrBackend` with a four-thread I/O pool. Writes go directly to a temporary Zarr under shared `/scratch`, pending writes are drained with `close()`, and the completed store is atomically renamed before the `.ready` marker is created.
+The production producer uses Earth2Studio's `AsyncZarrBackend` with a four-thread I/O pool. Writes go directly to a temporary Zarr under shared `/scratch`, pending writes are drained before the backend's per-initialization event loops are stopped and closed, and the completed store is atomically renamed before the `.ready` marker is created.
 
 Lead-time sharding remains disabled (`shard_lead_times: 1`). Benchmarking showed that four-lead-time sharding did not improve wall-clock time for this workload.
 
-The converter runs independently on a CPU node as one manager process with a bounded process pool. The manager alone scans `.ready` markers and submits each ready Zarr to at most one worker. Production is configured for 12 converter workers to provide throughput headroom relative to the two GPU producers. Actual aggregate conversion throughput depends on the CPU node assigned by Slurm and on concurrent Lustre I/O.
+The converter runs independently on a CPU node as one manager process with a bounded process pool. The manager alone scans `.ready` markers and submits each ready Zarr to at most one worker. Production is configured for 12 converter workers; deterministic H100 inference is slow enough that this provides throughput headroom even when up to eight producer array tasks run concurrently. Actual aggregate conversion throughput still depends on the CPU node assigned by Slurm and on concurrent Lustre I/O.
 
 Sapelo2 benchmarking showed that reading staged Zarr directly from shared `/scratch` is preferable to first copying it to node-local `/lscratch` for this conversion path. The reusable conversion logic is isolated in `scripts/netcdf_conversion.py`.
 
@@ -84,7 +85,7 @@ with the wrapper at:
 ~/.local/bin/nix
 ```
 
-The Nix shell keeps Pixi environments and transient caches on `/lscratch`, while the Earth2Studio model cache is kept under `/work/whlab/$USER`.
+The Nix shell keeps Pixi environments and node-local transient caches on `/lscratch`, while the Earth2Studio model cache is kept under `/work/whlab/$USER`. GraphCast Slurm jobs override the default JAX cache location with a shared `/scratch/$USER/weather-ai/jax-cache/<gpu-model>/` directory so persistent XLA compilation artifacts can be reused across jobs on different compute nodes. The GPU-model suffix is derived automatically from `nvidia-smi`, so new GPU types receive their own cache namespace without hard-coded model lists.
 
 ## Run on Sapelo2
 
@@ -94,14 +95,14 @@ Submit from the repository root:
 bash submit_graphcast_pipeline.sh
 ```
 
-Each submission creates `logs/YYYYMMDD_HHMMSS/` under the repository root. Forecast and converter stdout/stderr are combined into `graphcast-forecast-<jobid>.log` and `graphcast-convert-<jobid>.log`; Python status lines also include wall-clock timestamps and the Slurm job ID.
+Each submission creates `logs/YYYYMMDD_HHMMSS/` under the repository root. Forecast array stdout/stderr are combined per task in `graphcast-forecast-<array_jobid>_<taskid>.log`, while converter output is written to `graphcast-convert-<jobid>.log`; Python status lines also include wall-clock timestamps and the Slurm job ID.
 
 This submits:
 
-1. `slurm/run_graphcast_forecast.slurm`: two GraphCast GPU producers on `hu_p`.
+1. `slurm/run_graphcast_forecast.slurm`: a `gpu_p` job array with 20 fixed logical shards (`0-19%8`), one H100 per array task, and at most eight concurrent producer tasks.
 2. `slurm/run_graphcast_convert.slurm`: one CPU-side converter manager on `batch`, with 12 converter worker processes.
 
-The converter job uses Slurm's `after` dependency so it becomes eligible after the producer job starts rather than waiting for all GPU inference to finish.
+The converter is submitted immediately after the producer array rather than depending on the whole array's `after` condition. This lets NetCDF conversion begin as soon as `.ready` Zarr stores appear instead of waiting for every array element to start. The submission wrapper passes the producer array's base job ID to the converter. The converter checks Slurm's array base-job field and exits only after the producer array has left the active queue and no active or ready conversion work remains.
 
 Manual submission:
 
@@ -110,7 +111,7 @@ producer_job=$(sbatch --parsable slurm/run_graphcast_forecast.slurm)
 producer_job=${producer_job%%;*}
 
 sbatch \
-  --dependency="after:${producer_job}" \
+  --export="ALL,CONFIG=config/graphcast_operational_deterministic.yaml,PRODUCER_JOB_ID=${producer_job}" \
   slurm/run_graphcast_convert.slurm
 ```
 
@@ -119,13 +120,13 @@ sbatch \
 Default paths:
 
 ```text
-/lscratch/$USER/graphcast-operational/
-    node-local producer workspace and Nix/Pixi caches
+/lscratch/$USER/graphcast-operational-deterministic/
+    node-local producer workspace
 
-/scratch/$USER/weather-ai/graphcast-operational/.staging/
+/scratch/$USER/weather-ai/graphcast-operational-deterministic/.staging/
     shared Zarr handoff
 
-/scratch/$USER/weather-ai/graphcast-operational/
+/scratch/$USER/weather-ai/graphcast-operational-deterministic/
     final NetCDF files
 ```
 
@@ -136,6 +137,23 @@ On restart:
 - Existing final NetCDF files are skipped.
 - A staged Zarr with a `.ready` marker is reused rather than recomputed.
 - Incomplete local or partial products are cleaned and regenerated.
+- The logical shard count remains fixed at 20 even when only a subset of array indices is resubmitted. This preserves the original date-to-shard mapping.
+
+If one array task fails while the original array is still recoverable, requeue that element with:
+
+```bash
+scontrol requeue <array_job_id>_<task_id>
+```
+
+The producer is submitted with `--requeue`, which also makes it eligible for Slurm requeue after supported infrastructure events such as node failure or preemption. This does not automatically retry arbitrary application failures.
+
+If the original array is no longer active, a missing shard can be submitted by itself without changing its logical assignment:
+
+```bash
+sbatch --array=<task_id> slurm/run_graphcast_forecast.slurm
+```
+
+Command-line `--array` overrides the script's default `0-19%8` submission range, while the Python worker still receives `--num-workers 20`. If the previous converter has already exited, start a converter for the replacement producer as well.
 
 `/scratch` is temporary cluster storage. Outputs needed for long-term retention should be transferred to persistent or archival storage.
 
@@ -170,14 +188,16 @@ validation:
 
 Slurm resources remain in the `.slurm` files because they describe scheduler resources rather than the experiment itself.
 
-Forecast job:
+Forecast array task:
 
 ```text
-2 x L40S
-2 tasks
-8 CPUs per task
+1 x H100
+1 task
+8 CPUs
 128 GiB RAM
-30 hours walltime
+10 hours walltime
+20 fixed logical shards
+maximum 8 concurrent array tasks
 ```
 
 Converter job:
@@ -185,10 +205,10 @@ Converter job:
 ```text
 12 CPUs
 48 GiB RAM
-36 hours walltime
+48 hours walltime
 ```
 
-The converter memory and walltime include deliberate headroom to reduce the risk that a long 607-initialization production run is lost to an OOM or modestly slower-than-benchmarked conversion throughput.
+The producer shard count is intentionally fixed at 20 so restart/resume runs preserve the same date-to-worker mapping. The converter memory and walltime include deliberate headroom for queueing variation and slower-than-benchmarked conversion throughput.
 
 ## Repository layout
 

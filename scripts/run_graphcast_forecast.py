@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 import os
 import shutil
-import subprocess
 import time
 from collections import OrderedDict
 from datetime import datetime
@@ -34,16 +33,81 @@ def duration(seconds):
     return f"{h}h {m:02d}m {s:02d}s" if h else f"{m}m {s:02d}s"
 
 
-def size_gib(path: Path):
-    out = subprocess.check_output(["du", "-s", "-B1", str(path)], text=True)
-    return int(out.split()[0]) / 1024**3
-
-
 def remove(path: Path):
     if path.is_dir():
         shutil.rmtree(path)
     elif path.exists():
         path.unlink()
+
+
+def process_status():
+    values = {}
+
+    try:
+        with Path("/proc/self/status").open(encoding="utf-8") as stream:
+            for line in stream:
+                key, _, value = line.partition(":")
+                if key in {"VmRSS", "VmSize", "Threads"}:
+                    values[key] = value.strip()
+    except OSError:
+        return "RSS=?; VMS=?; threads=?"
+
+    def gib(key):
+        value = values.get(key)
+        if value is None:
+            return None
+        return int(value.split()[0]) / 1024**2
+
+    rss = gib("VmRSS")
+    vms = gib("VmSize")
+    threads = values.get("Threads", "?")
+    rss_text = "?" if rss is None else f"{rss:.2f} GiB"
+    vms_text = "?" if vms is None else f"{vms:.2f} GiB"
+    return f"RSS={rss_text}; VMS={vms_text}; threads={threads}"
+
+
+def close_async_backend(io):
+    """Drain AsyncZarr writes and stop its per-instance event-loop threads."""
+
+    start = time.perf_counter()
+    close_error = None
+
+    try:
+        io.close()
+    except BaseException as exc:
+        close_error = exc
+    finally:
+        drain_elapsed = time.perf_counter() - start
+        shutdown_start = time.perf_counter()
+        loops = tuple(getattr(io, "loop_pool", ()))
+
+        for loop in loops:
+            if loop.is_running() and not loop.is_closed():
+                try:
+                    loop.call_soon_threadsafe(loop.stop)
+                except RuntimeError:
+                    pass
+
+        deadline = time.monotonic() + 5.0
+        while any(loop.is_running() for loop in loops):
+            if time.monotonic() >= deadline:
+                if close_error is None:
+                    close_error = RuntimeError(
+                        "AsyncZarr event-loop threads did not stop within 5 seconds"
+                    )
+                break
+            time.sleep(0.01)
+
+        for loop in loops:
+            if not loop.is_running() and not loop.is_closed():
+                loop.close()
+
+    shutdown_elapsed = time.perf_counter() - shutdown_start
+
+    if close_error is not None:
+        raise close_error
+
+    return drain_elapsed, shutdown_elapsed
 
 
 def make_io(cfg, local: Path, init_date):
@@ -115,6 +179,7 @@ def main():
     model = GraphCastOperational.load_model(pkg)
     data = ARCO()
     log(f"Model loaded in {duration(time.perf_counter()-t0)}", producer=args.worker)
+    log(f"Process after model load: {process_status()}", producer=args.worker)
 
     for n, init_date in enumerate(mine, 1):
         base = output_basename(cfg, init_date)
@@ -138,38 +203,56 @@ def main():
             remove(partial)
             continue
 
+        path_cleanup_start = time.perf_counter()
         remove(local)
         remove(partial)
         remove(staged)
         remove(ready)
+        path_cleanup = time.perf_counter() - path_cleanup_start
 
         write_target = local if cfg.write_mode == "local_then_stage" else partial
+        backend_setup_start = time.perf_counter()
         io = make_io(cfg, write_target, init_date)
+        backend_setup = time.perf_counter() - backend_setup_start
 
         start = time.perf_counter()
-        run.deterministic(
-            [datetime.combine(init_date, datetime.min.time())],
-            cfg.steps,
-            model,
-            data,
-            io,
-            output_coords={"variable": np.asarray(cfg.variables)},
-            device=cfg.device,
-        )
-        inference_loop = time.perf_counter() - start
-
         drain = 0.0
-        if cfg.zarr_backend == "async":
-            start = time.perf_counter()
-            io.close()
-            drain = time.perf_counter() - start
+        loop_shutdown = 0.0
+        inference_error = None
+
+        try:
+            run.deterministic(
+                [datetime.combine(init_date, datetime.min.time())],
+                cfg.steps,
+                model,
+                data,
+                io,
+                output_coords={"variable": np.asarray(cfg.variables)},
+                device=cfg.device,
+            )
+        except BaseException as exc:
+            inference_error = exc
+            raise
+        finally:
+            inference_loop = time.perf_counter() - start
+
+            if cfg.zarr_backend == "async":
+                try:
+                    drain, loop_shutdown = close_async_backend(io)
+                except BaseException as cleanup_exc:
+                    if inference_error is None:
+                        raise
+                    log(
+                        f"Async Zarr cleanup also failed: {cleanup_exc!r}",
+                        producer=args.worker,
+                    )
 
         log(
             f"Inference loop: {duration(inference_loop)}; "
-            f"Zarr drain: {duration(drain)}; "
-            f"Zarr: {size_gib(write_target):.2f} GiB",
+            f"Zarr drain: {duration(drain)}",
             producer=args.worker,
         )
+        log(f"Process after I/O cleanup: {process_status()}", producer=args.worker)
 
         start = time.perf_counter()
         if cfg.write_mode == "local_then_stage":
@@ -189,6 +272,17 @@ def main():
                 f"Direct /scratch finalize in {duration(stage)}",
                 producer=args.worker,
             )
+
+        log(
+            "Timing detail: "
+            f"path_cleanup={path_cleanup:.3f}s; "
+            f"backend_setup={backend_setup:.3f}s; "
+            f"inference={inference_loop:.3f}s; "
+            f"zarr_drain={drain:.3f}s; "
+            f"loop_shutdown={loop_shutdown:.3f}s; "
+            f"finalize={stage:.3f}s",
+            producer=args.worker,
+        )
 
 
 if __name__ == "__main__":
