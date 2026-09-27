@@ -15,6 +15,9 @@ from graphcast_config import initialization_dates, load_graphcast_config, output
 from netcdf_conversion import ConversionResult, convert_zarr_to_netcdf
 
 
+REQUEUE_EXIT_CODE = 75
+
+
 @dataclass(frozen=True)
 class ConversionJob:
     base: str
@@ -69,6 +72,15 @@ def producer_is_active(job_id: str | None) -> bool | None:
     return job_id in result.stdout.split()
 
 
+def ready_work_exists(jobs: list[ConversionJob]) -> bool:
+    return any(
+        not job.final.exists()
+        and job.ready.exists()
+        and job.staged.exists()
+        for job in jobs
+    )
+
+
 def build_jobs(cfg) -> list[ConversionJob]:
     jobs = []
 
@@ -108,6 +120,10 @@ def main():
     cfg.final_root.mkdir(parents=True, exist_ok=True)
 
     producer_job_id = os.environ.get("PRODUCER_JOB_ID")
+    requeue_after_seconds = int(
+        os.environ.get("CONVERTER_REQUEUE_AFTER_SECONDS", "0")
+    )
+    started = time.monotonic()
     jobs = build_jobs(cfg)
     active = {}
 
@@ -116,7 +132,9 @@ def main():
         f"workers={cfg.converter_workers}; "
         f"poll={cfg.poll_seconds}s; "
         f"compression level={cfg.compression_level}; "
-        f"producer_job={producer_job_id or 'untracked'}"
+        f"producer_job={producer_job_id or 'untracked'}; "
+        f"requeue_after="
+        f"{duration(requeue_after_seconds) if requeue_after_seconds else 'disabled'}"
     )
 
     # One manager process owns discovery/submission. Worker processes never
@@ -155,7 +173,37 @@ def main():
                 log(f"All {completed} NetCDF files are complete.")
                 break
 
-            slots = cfg.converter_workers - len(active)
+            requeue_due = (
+                requeue_after_seconds > 0
+                and time.monotonic() - started >= requeue_after_seconds
+            )
+
+            if requeue_due and not active:
+                producer_active = producer_is_active(producer_job_id)
+                final_ready = ready_work_exists(jobs)
+
+                if producer_active is False and not final_ready:
+                    log(
+                        f"Producer job {producer_job_id} is no longer active and "
+                        f"no conversion work remains; exiting without requeue "
+                        f"({completed}/{len(jobs)} complete)."
+                    )
+                    break
+
+                log(
+                    f"Converter runtime reached {duration(requeue_after_seconds)}; "
+                    f"requesting Slurm requeue after draining active workers "
+                    f"(producer_active={producer_active}, "
+                    f"ready_work={final_ready}, "
+                    f"{completed}/{len(jobs)} complete)."
+                )
+                return REQUEUE_EXIT_CODE
+
+            slots = (
+                0
+                if requeue_due
+                else cfg.converter_workers - len(active)
+            )
 
             if slots > 0:
                 active_bases = {job.base for job in active.values()}
@@ -194,12 +242,7 @@ def main():
                 producer_active = producer_is_active(producer_job_id)
 
                 if producer_active is False:
-                    final_ready = any(
-                        not job.final.exists()
-                        and job.ready.exists()
-                        and job.staged.exists()
-                        for job in jobs
-                    )
+                    final_ready = ready_work_exists(jobs)
 
                     if final_ready:
                         log(
@@ -222,5 +265,8 @@ def main():
                 time.sleep(cfg.poll_seconds)
 
 
+    return 0
+
+
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
