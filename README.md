@@ -120,13 +120,13 @@ sbatch \
 Default paths:
 
 ```text
-/lscratch/$USER/graphcast-operational/
-    node-local producer workspace and Nix/Pixi caches
+/lscratch/$USER/graphcast-operational-deterministic/
+    node-local producer workspace
 
-/scratch/$USER/weather-ai/graphcast-operational/.staging/
+/scratch/$USER/weather-ai/graphcast-operational-deterministic/.staging/
     shared Zarr handoff
 
-/scratch/$USER/weather-ai/graphcast-operational/
+/scratch/$USER/weather-ai/graphcast-operational-deterministic/
     final NetCDF files
 ```
 
@@ -137,6 +137,23 @@ On restart:
 - Existing final NetCDF files are skipped.
 - A staged Zarr with a `.ready` marker is reused rather than recomputed.
 - Incomplete local or partial products are cleaned and regenerated.
+- The logical shard count remains fixed at 20 even when only a subset of array indices is resubmitted. This preserves the original date-to-shard mapping.
+
+If one array task fails while the original array is still recoverable, requeue that element with:
+
+```bash
+scontrol requeue <array_job_id>_<task_id>
+```
+
+The producer is submitted with `--requeue`, which also makes it eligible for Slurm requeue after supported infrastructure events such as node failure or preemption. This does not automatically retry arbitrary application failures.
+
+If the original array is no longer active, a missing shard can be submitted by itself without changing its logical assignment:
+
+```bash
+sbatch --array=<task_id> slurm/run_graphcast_forecast.slurm
+```
+
+Command-line `--array` overrides the script's default `0-19%8` submission range, while the Python worker still receives `--num-workers 20`. If the previous converter has already exited, start a converter for the replacement producer as well.
 
 `/scratch` is temporary cluster storage. Outputs needed for long-term retention should be transferred to persistent or archival storage.
 
