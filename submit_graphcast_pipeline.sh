@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
-CONFIG="${CONFIG:-config/graphcast_operational.yaml}"
+CONFIG="${CONFIG:-config/graphcast_operational_deterministic.yaml}"
 RUN_ID="$(date +'%Y%m%d_%H%M%S')"
 LOG_DIR="$ROOT/logs/$RUN_ID"
 mkdir -p "$LOG_DIR"
