@@ -43,7 +43,7 @@ def remove(path: Path):
 
 
 def producer_is_active(job_id: str | None) -> bool | None:
-    """Return whether the producer is still present in Slurm's active queue."""
+    """Return whether the producer array is still present in Slurm's active queue."""
 
     if not job_id:
         return None
