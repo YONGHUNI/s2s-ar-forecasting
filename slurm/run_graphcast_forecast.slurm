@@ -9,6 +9,7 @@
 #SBATCH --mem=128G
 #SBATCH --time=10:00:00
 #SBATCH --array=0-19%8
+#SBATCH --requeue
 #SBATCH --output=graphcast-forecast-%A_%a.out
 #SBATCH --error=graphcast-forecast-%A_%a.err
 
@@ -41,8 +42,13 @@ cd "$PROJECT"
 export CONFIG
 
 NUM_SHARDS=20
-if [[ "${SLURM_ARRAY_TASK_COUNT:-0}" -ne "$NUM_SHARDS" ]]; then
-    echo "Expected $NUM_SHARDS array tasks, got ${SLURM_ARRAY_TASK_COUNT:-unset}" >&2
+if [[ -z "${SLURM_ARRAY_TASK_ID:-}" ]]; then
+    echo "This producer must be submitted as a Slurm array task." >&2
+    exit 1
+fi
+
+if (( SLURM_ARRAY_TASK_ID < 0 || SLURM_ARRAY_TASK_ID >= NUM_SHARDS )); then
+    echo "Array task ID $SLURM_ARRAY_TASK_ID is outside logical shard range 0-$((NUM_SHARDS - 1))." >&2
     exit 1
 fi
 export NUM_SHARDS
@@ -66,7 +72,7 @@ srun     --ntasks="$SLURM_NTASKS"     --cpus-per-task="$SLURM_CPUS_PER_TASK"    
         export JAX_COMPILATION_CACHE_DIR="/scratch/$USER/weather-ai/jax-cache/$JAX_CACHE_TAG"
         mkdir -p "$JAX_COMPILATION_CACHE_DIR"
 
-        echo "Array producer=$SLURM_ARRAY_TASK_ID/$SLURM_ARRAY_TASK_COUNT CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES CONFIG=$CONFIG XLA_FLAGS=$XLA_FLAGS"
+        echo "Array producer=$SLURM_ARRAY_TASK_ID logical_shards=$NUM_SHARDS submitted_tasks=$SLURM_ARRAY_TASK_COUNT restart_count=${SLURM_RESTART_COUNT:-0} CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES CONFIG=$CONFIG XLA_FLAGS=$XLA_FLAGS"
         echo "GPU_NAME=$GPU_NAME JAX_COMPILATION_CACHE_DIR=$JAX_COMPILATION_CACHE_DIR"
 
         pixi run -e graphcast \
