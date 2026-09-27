@@ -50,7 +50,7 @@ def producer_is_active(job_id: str | None) -> bool | None:
 
     try:
         result = subprocess.run(
-            ["squeue", "-h", "-u", os.environ["USER"], "-o", "%A"],
+            ["squeue", "-h", "-u", os.environ["USER"], "-o", "%F"],
             check=False,
             capture_output=True,
             text=True,
