@@ -30,14 +30,21 @@ NIX="$HOME/.local/bin/nix"
     exit 1
 }
 
-cd "$BOOTSTRAP"
-./bootstrap.sh --store-root "/lscratch/$USER/.nix"
+mkdir -p "$HOME/.cache"
+(
+    flock -x 9
+    cd "$BOOTSTRAP"
+    ./bootstrap.sh --store-root "/lscratch/$USER/.nix"
+) 9>"$HOME/.cache/rootless-nix-bootstrap.lock"
 
 cd "$PROJECT"
-"$NIX" develop --command bash -c '
-    set -euo pipefail
-    pixi install -e graphcast
-'
+(
+    flock -x 9
+    "$NIX" develop --command bash -c '
+        set -euo pipefail
+        pixi install -e graphcast
+    '
+) 9>"/lscratch/$USER/pixi-graphcast-install.lock"
 
 export CONFIG
 
@@ -63,10 +70,10 @@ srun     --ntasks="$SLURM_NTASKS"     --cpus-per-task="$SLURM_CPUS_PER_TASK"    
 
         GPU_NAME="$(nvidia-smi --query-gpu=name --format=csv,noheader | head -n1)"
         JAX_CACHE_TAG="$(
-            printf '%s' "$GPU_NAME" \
-            | sed -E 's/^NVIDIA[[:space:]]+//' \
-            | tr '[:upper:]' '[:lower:]' \
-            | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//'
+            printf "%s" "$GPU_NAME" \
+            | sed -E "s/^NVIDIA[[:space:]]+//" \
+            | tr "[:upper:]" "[:lower:]" \
+            | sed -E "s/[^a-z0-9]+/-/g; s/^-+//; s/-+$//"
         )"
         JAX_CACHE_TAG="${JAX_CACHE_TAG:-generic}"
         export JAX_COMPILATION_CACHE_DIR="/scratch/$USER/weather-ai/jax-cache/$JAX_CACHE_TAG"
