@@ -60,7 +60,7 @@ output:
   final_root: "/scratch/{user}/weather-ai/graphcast-operational-deterministic"
 
 converter:
-  poll_seconds: 5
+  poll_seconds: 30
   workers: 12
 
 validation:
