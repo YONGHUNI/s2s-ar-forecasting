@@ -13,7 +13,7 @@
 set -euo pipefail
 
 PROJECT="${PROJECT:-${SLURM_SUBMIT_DIR:?Submit this job from the repository root}}"
-CONFIG="${CONFIG:-config/graphcast_operational.yaml}"
+CONFIG="${CONFIG:-config/graphcast_operational_deterministic.yaml}"
 BOOTSTRAP="$HOME/rootless-nix-bootstrap"
 NIX="$HOME/.local/bin/nix"
 
