@@ -18,8 +18,8 @@ mkdir -p "$LOG_DIR"
 producer_raw="$(
     sbatch \
         --parsable \
-        --output="$LOG_DIR/graphcast-forecast-%j.log" \
-        --error="$LOG_DIR/graphcast-forecast-%j.log" \
+        --output="$LOG_DIR/graphcast-forecast-%A_%a.log" \
+        --error="$LOG_DIR/graphcast-forecast-%A_%a.log" \
         --export="ALL,CONFIG=$CONFIG" \
         slurm/run_graphcast_forecast.slurm
 )"
@@ -28,7 +28,6 @@ producer_job="${producer_raw%%;*}"
 converter_raw="$(
     sbatch \
         --parsable \
-        --dependency="after:${producer_job}" \
         --output="$LOG_DIR/graphcast-convert-%j.log" \
         --error="$LOG_DIR/graphcast-convert-%j.log" \
         --export="ALL,CONFIG=$CONFIG,PRODUCER_JOB_ID=$producer_job" \
