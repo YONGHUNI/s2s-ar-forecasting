@@ -27,14 +27,21 @@ NIX="$HOME/.local/bin/nix"
     exit 1
 }
 
-cd "$BOOTSTRAP"
-./bootstrap.sh --store-root "/lscratch/$USER/.nix"
+mkdir -p "$HOME/.cache"
+(
+    flock -x 9
+    cd "$BOOTSTRAP"
+    ./bootstrap.sh --store-root "/lscratch/$USER/.nix"
+) 9>"$HOME/.cache/rootless-nix-bootstrap.lock"
 
 cd "$PROJECT"
-"$NIX" develop --command bash -c '
-    set -euo pipefail
-    pixi install -e graphcast
-'
+(
+    flock -x 9
+    "$NIX" develop --command bash -c '
+        set -euo pipefail
+        pixi install -e graphcast
+    '
+) 9>"/lscratch/$USER/pixi-graphcast-install.lock"
 
 export CONFIG
 
