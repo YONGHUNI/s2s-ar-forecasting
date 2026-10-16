@@ -58,23 +58,17 @@ if (( SLURM_ARRAY_TASK_ID < 0 || SLURM_ARRAY_TASK_ID >= NUM_SHARDS )); then
 fi
 export NUM_SHARDS
 
-srun     --ntasks="$SLURM_NTASKS"     --cpus-per-task="$SLURM_CPUS_PER_TASK"     --gpus-per-task=1     --gpu-bind=single:1     "$NIX" develop --command bash -c '
-        set -euo pipefail
-        export OMP_NUM_THREADS="$SLURM_CPUS_PER_TASK"
-        export OPENBLAS_NUM_THREADS="$SLURM_CPUS_PER_TASK"
-        export MKL_NUM_THREADS="$SLURM_CPUS_PER_TASK"
-        export NUMEXPR_NUM_THREADS="$SLURM_CPUS_PER_TASK"
-        echo "Array producer=$SLURM_ARRAY_TASK_ID logical_shards=$NUM_SHARDS submitted_tasks=$SLURM_ARRAY_TASK_COUNT restart_count=${SLURM_RESTART_COUNT:-0} CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES CONFIG=$CONFIG XLA_FLAGS=${XLA_FLAGS:-<unset>}"
-        echo "GPU_NAME=$GPU_NAME JAX_COMPILATION_CACHE_DIR=$JAX_COMPILATION_CACHE_DIR"
-
-        pixi run -e pangu --locked -- bash -c '
-            set -euo pipefail
-            python_dir="$(dirname "$(command -v python)")"
-            env_dir="$(dirname "$python_dir")"
-            export LD_LIBRARY_PATH="$env_dir/lib:${LD_LIBRARY_PATH:-}"
-            exec python -u scripts/run_pangu_forecast.py \
-                --config "$CONFIG" \
-                --worker "$SLURM_ARRAY_TASK_ID" \
-                --num-workers "$NUM_SHARDS"
-        '
-    '
+srun --ntasks="$SLURM_NTASKS" \
+     --cpus-per-task="$SLURM_CPUS_PER_TASK" \
+     --gpus-per-task=1 --gpu-bind=single:1 \
+     "$NIX" develop --command bash -c '
+  set -euo pipefail
+  export OMP_NUM_THREADS="$SLURM_CPUS_PER_TASK"
+  export OPENBLAS_NUM_THREADS="$SLURM_CPUS_PER_TASK"
+  export MKL_NUM_THREADS="$SLURM_CPUS_PER_TASK"
+  export NUMEXPR_NUM_THREADS="$SLURM_CPUS_PER_TASK"
+  echo "Pangu producer=$SLURM_ARRAY_TASK_ID shards=$NUM_SHARDS config=$CONFIG gpu=$CUDA_VISIBLE_DEVICES"
+  pixi run -e pangu --locked -- bash scripts/pixi_exec.sh \
+    python -u scripts/run_pangu_forecast.py \
+    --config "$CONFIG" --worker "$SLURM_ARRAY_TASK_ID" --num-workers "$NUM_SHARDS"
+'
