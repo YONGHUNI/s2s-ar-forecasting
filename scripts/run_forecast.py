@@ -174,6 +174,30 @@ def main():
         producer=args.worker,
     )
 
+    # Avoid loading GPU model weights when every assigned initialization is
+    # already published or staged for the NetCDF converter.
+    pending = []
+    for init_date in mine:
+        base = output_basename(cfg, init_date)
+        final = cfg.final_root / f"{base}.nc"
+        staged = cfg.staging_root / f"{base}.zarr"
+        ready = cfg.staging_root / f"{base}.ready"
+        if not final.exists() and not (staged.exists() and ready.exists()):
+            pending.append(init_date)
+
+    if not pending:
+        log(
+            "All assigned initializations have NetCDF outputs or ready Zarr; "
+            "skipping model load and inference.",
+            producer=args.worker,
+        )
+        return
+
+    log(
+        f"{len(pending)} of {len(mine)} assigned initializations need inference.",
+        producer=args.worker,
+    )
+
     t0 = time.perf_counter()
     if cfg.model_name == "Pangu6":
         from earth2studio.models.px import Pangu6 as model_type
