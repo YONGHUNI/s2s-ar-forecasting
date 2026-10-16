@@ -65,7 +65,7 @@ srun     --ntasks=1     --cpus-per-task="$SLURM_CPUS_PER_TASK"     "$NIX" develo
 
         echo "Converter manager CONFIG=$CONFIG"
 
-        pixi run -e graphcast             python scripts/convert_graphcast_netcdf.py             --config "$CONFIG"
+        pixi run -e graphcast             python scripts/convert_netcdf.py             --config "$CONFIG"
     '
 status=$?
 set -e
