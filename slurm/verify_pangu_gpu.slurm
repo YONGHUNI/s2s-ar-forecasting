@@ -16,31 +16,19 @@ MANIFEST="$PROJECT/environments/pangu/pixi.toml"
 BOOTSTRAP="$HOME/rootless-nix-bootstrap"
 NIX="$HOME/.local/bin/nix"
 cd "$PROJECT"
-mkdir -p "$HOME/.cache"
-(
-  flock -x 9
-  "$BOOTSTRAP/bootstrap.sh" --store-root "/lscratch/$USER/.nix"
-) 9>"$HOME/.cache/rootless-nix-bootstrap.lock"
-
 echo "job=$SLURM_JOB_ID node=$(hostname) commit=$(git rev-parse HEAD)"
-nvidia-smi
-# Monitor the allocated GPU periodically during model loading and execution.
+# Monitor the allocated GPU throughout the test.
 (
-  while true; do
-    echo "=== GPU sample $(date --iso-8601=seconds) ==="
-    nvidia-smi --query-gpu=utilization.gpu,memory.used --format=csv,noheader
-    sleep 2
-  done
+ while true; do
+  echo "=== GPU sample $(date --iso-8601=seconds) ==="
+  nvidia-smi --query-gpu=utilization.gpu,memory.used --format=csv,noheader
+  sleep 2
+ done
 ) &
 monitor_pid=$!
 trap 'kill "$monitor_pid" 2>/dev/null || true' EXIT
-
 "$NIX" develop --command bash -c '
-  set -euo pipefail
-  manifest="$1"
-  project="$2"
-  lib="$project/environments/pangu/.pixi/envs/default/lib"
-  pixi run --manifest-path "$manifest" --locked \
-    env LD_LIBRARY_PATH="$lib:${LD_LIBRARY_PATH:-}" \
-    python -u scripts/verify_pangu_gpu.py
-' bash "$MANIFEST" "$PROJECT"
+ set -euo pipefail
+ project="$1"
+ bash "$project/scripts/pangu_pixi_run.sh" python -u scripts/verify_pangu_gpu.py
+' bash "$PROJECT"
