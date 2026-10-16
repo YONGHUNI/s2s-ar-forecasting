@@ -4,7 +4,7 @@ UGA-side AI/data-driven modeling workflow for the NASA ROSES-2025 Water Resource
 
 > **Improving Subseasonal-to-Seasonal Forecasts of Atmospheric Rivers in the Western U.S. through Temporal Clustering Analysis, Orientation Prediction, and Hybrid Modeling Approaches**
 
-The current implementation focuses on reproducible GraphCast Operational experiments on UGA GACRC Sapelo2. Pangu-Weather and SFNO environments are also retained in `pixi.toml` for later model intercomparison work.
+The repository supports GraphCast Operational and a Pangu6 pipeline for UGA GACRC Sapelo2. SFNO remains available as a Pixi feature for later evaluation.
 
 ## Current GraphCast experiment
 
@@ -233,3 +233,49 @@ The producer shard count is intentionally fixed at 20 so restart/resume runs pre
 ```
 
 `flake.lock` and `pixi.lock` are committed for reproducibility. Generated Pixi environments, Slurm logs, Zarr stores, NetCDF files, partial files, and ready markers are ignored.
+
+## Pangu6 pipeline (pilot validation before production)
+
+Pangu follows the same architecture as GraphCast: one Nix flake and one root
+Pixi workspace with independent `-e pangu` and `-e graphcast` environments;
+per-node Nix/Pixi state under `/lscratch`; GPU producer array and concurrent CPU
+NetCDF converter; shared Zarr staging with `.ready` markers; atomic final output;
+and restart-safe skipping of finished NetCDF files.
+
+The validated single-initialization Pangu6 rollout uses 168 six-hour forecast
+steps (169 lead times), with 69 variables and 721 x 1440 grid points. Pangu6
+does not produce GraphCast's `tp06` precipitation variable.
+
+The only root submission entrypoint is:
+
+```bash
+# Initial production-architecture test: 2024-10-01 only, array task 0
+bash submit_pangu_pipeline.sh
+
+# Full 607-initialization production after pilot validation
+CONFIG=config/pangu_operational.yaml bash submit_pangu_pipeline.sh
+```
+
+**Do not start the full 607-initialization run until the pilot producer and CPU
+converter both finish successfully.** The default pilot configuration stages
+data in a separate `pangu-pilot` output tree; no GraphCast output paths are
+modified. Default Slurm scheduling is `hu_p` L40S for forecast and `batch`
+for CPU conversion. Production uses 20 fixed logical shards with a maximum
+of 4 concurrent GPU array tasks. Experiment variables, dates, and output roots
+are managed by the model-specific YAML files.
+
+The root `pixi.lock` currently contains Earth2Studio 0.18.0 in `-e pangu`
+but not `netcdf4` in that environment. Therefore the **model-independent**
+CPU NetCDF converter temporarily uses the existing root `-e graphcast` Pixi
+environment (which already includes NetCDF4). GPU forecasts use `-e pangu`.
+A future common I/O feature can replace this without maintaining an independent
+Pangu `pixi.toml` or `pixi.lock`. The existing NetCDF conversion utility
+adds metadata for variables shared by GraphCast and Pangu; scientific attribute
+validation is still needed before publishing all 607 products.
+
+Slurm initialization uses the existing rootless-Nix bootstrap. A batch CPU
+node whose DNS cannot resolve `releases.nixos.org` may still fail before the
+conversion starts; this is an unresolved infrastructure preflight and must be
+checked with the pilot job.
+
+After validation, the default can be switched from pilot to operational.
