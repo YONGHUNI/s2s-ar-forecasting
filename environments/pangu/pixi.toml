@@ -1,0 +1,22 @@
+[workspace]
+name = "s2s-ar-pangu"
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[system-requirements]
+cuda = "13.0"
+
+[dependencies]
+python = "3.12.*"
+numpy = "*"
+xarray = "<=2026.2.0"
+zarr = "*"
+matplotlib = "*"
+pip = "*"
+ipykernel = "*"
+ipywidgets = ">=8.1.9,<9"
+pyyaml = ">=6.0,<7"
+netcdf4 = ">=1.7,<2"
+
+[pypi-dependencies]
+earth2studio = { version = ">=0.18.0,<0.19", extras = ["pangu"] }
