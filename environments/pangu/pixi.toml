@@ -17,6 +17,7 @@ ipykernel = "*"
 ipywidgets = ">=8.1.9,<9"
 pyyaml = ">=6.0,<7"
 netcdf4 = ">=1.6.4,<1.7.3"
+libstdcxx-ng = ">=12"
 
 [pypi-dependencies]
 earth2studio = { version = ">=0.18.0,<0.19", extras = ["pangu"] }
