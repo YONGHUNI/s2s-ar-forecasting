@@ -16,19 +16,9 @@ MANIFEST="$PROJECT/environments/pangu/pixi.toml"
 BOOTSTRAP="$HOME/rootless-nix-bootstrap"
 NIX="$HOME/.local/bin/nix"
 cd "$PROJECT"
-mkdir -p "$HOME/.cache"
-(
- flock -x 9
- "$BOOTSTRAP/bootstrap.sh" --store-root "/lscratch/$USER/.nix"
-) 9>"$HOME/.cache/rootless-nix-bootstrap.lock"
-echo "job=$SLURM_JOB_ID node=$(hostname) git=$(git rev-parse HEAD)"
-nvidia-smi
+echo "job=$SLURM_JOB_ID node=$(hostname) commit=$(git rev-parse HEAD)"
 "$NIX" develop --command bash -c '
  set -euo pipefail
- manifest="$1"
- project="$2"
- lib="$project/environments/pangu/.pixi/envs/default/lib"
- pixi run --manifest-path "$manifest" --locked \
-   env LD_LIBRARY_PATH="$lib:${LD_LIBRARY_PATH:-}" \
-   python -u scripts/run_pangu_42day_test.py --config config/pangu_42day_test.yaml
-' bash "$MANIFEST" "$PROJECT"
+ project="$1"
+ bash "$project/scripts/pangu_pixi_run.sh" python -u scripts/run_pangu_42day_test.py --config config/pangu_42day_test.yaml
+' bash "$PROJECT"
