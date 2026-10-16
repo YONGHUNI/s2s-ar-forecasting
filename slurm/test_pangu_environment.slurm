@@ -36,8 +36,12 @@ cd "$PROJECT"
 "$NIX" develop --command bash -c '
   set -euo pipefail
   MANIFEST="$1"
+  PROJECT="$2"
   pixi install --manifest-path "$MANIFEST"
-  pixi run --manifest-path "$MANIFEST" --locked python scripts/test_pangu_environment.py
-' bash "$MANIFEST"
+  ENV_LIB="$PROJECT/environments/pangu/.pixi/envs/default/lib"
+  pixi run --manifest-path "$MANIFEST" --locked \
+    env LD_LIBRARY_PATH="$ENV_LIB:\${LD_LIBRARY_PATH:-}" \
+    python scripts/test_pangu_environment.py
+' bash "$MANIFEST" "$PROJECT"
 
 echo "Pangu environment validation passed."
