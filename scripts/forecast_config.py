@@ -23,6 +23,7 @@ WEEKDAY_INDEX = {
 
 @dataclass(frozen=True)
 class ForecastConfig:
+    model_name: str
     start_date: date
     end_date: date
     init_weekdays: tuple[int, ...]
@@ -218,6 +219,7 @@ def load_forecast_config(path: str | Path) -> ForecastConfig:
         raise ValueError("converter.workers must be >= 1")
 
     config = ForecastConfig(
+        model_name=str(model["name"]),
         start_date=start_date,
         end_date=end_date,
         init_weekdays=init_weekdays,
@@ -257,6 +259,6 @@ def output_basename(config: ForecastConfig, init_date: date) -> str:
     stamp = init_date.strftime("%Y%m%d")
 
     return (
-        f"{'graphcast_operational' if len(config.variables) == 70 else 'pangu6'}_{stamp}_"
+        f"{'graphcast_operational' if config.model_name == 'GraphCastOperational' else 'pangu6'}_{stamp}_"
         f"{config.forecast_days}day_subset"
     )
