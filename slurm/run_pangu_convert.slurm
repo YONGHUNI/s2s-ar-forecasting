@@ -55,22 +55,17 @@ echo "Pangu6 converter uses shared GraphCast Pixi I/O feature (netcdf4) until de
 echo "Converter lifecycle restart_count=${SLURM_RESTART_COUNT:-0} requeue_after_seconds=$CONVERTER_REQUEUE_AFTER_SECONDS producer_job=${PRODUCER_JOB_ID:-untracked}"
 
 set +e
-srun     --ntasks=1     --cpus-per-task="$SLURM_CPUS_PER_TASK"     "$NIX" develop --command bash -c '
-        set -euo pipefail
-        export OMP_NUM_THREADS=1
-        export OPENBLAS_NUM_THREADS=1
-        export MKL_NUM_THREADS=1
-        export NUMEXPR_NUM_THREADS=1
-
-        echo "Converter manager CONFIG=$CONFIG"
-
-        pixi run -e graphcast --locked -- bash -c '
-            set -euo pipefail
-            env_dir="$(dirname "$(dirname "$(command -v python)")")"
-            export LD_LIBRARY_PATH="$env_dir/lib:${LD_LIBRARY_PATH:-}"
-            exec python -u scripts/convert_pangu_netcdf.py --config "$CONFIG"
-        '
-    '
+srun --ntasks=1 --cpus-per-task="$SLURM_CPUS_PER_TASK" \
+     "$NIX" develop --command bash -c '
+  set -euo pipefail
+  export OMP_NUM_THREADS=1
+  export OPENBLAS_NUM_THREADS=1
+  export MKL_NUM_THREADS=1
+  export NUMEXPR_NUM_THREADS=1
+  echo "Pangu converter CONFIG=$CONFIG"
+  pixi run -e graphcast --locked -- bash scripts/pixi_exec.sh \
+    python -u scripts/convert_pangu_netcdf.py --config "$CONFIG"
+'
 status=$?
 set -e
 
