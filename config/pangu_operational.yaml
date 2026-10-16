@@ -60,7 +60,7 @@ output:
 
 converter:
   poll_seconds: 30
-  workers: 8
+  workers: 24
 
 validation:
   expected_variable_count: 69
