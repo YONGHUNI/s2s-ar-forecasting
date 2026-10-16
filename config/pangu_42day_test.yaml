@@ -1,0 +1,14 @@
+experiment:
+  initialization: "2024-10-01T00:00:00"
+  forecast_days: 42
+  hours_per_step: 6
+  expected_lead_times: 169
+model:
+  name: Pangu6
+  device: cuda
+output:
+  root: "/scratch/{user}/weather-ai/pangu-operational/long-test"
+validation:
+  expected_variable_count: 69
+  expected_latitude: 721
+  expected_longitude: 1440
