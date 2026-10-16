@@ -13,7 +13,7 @@ import numpy as np
 from earth2studio import run
 from earth2studio.data import ARCO
 from earth2studio.io import AsyncZarrBackend, ZarrBackend
-from earth2studio.models.px import GraphCastOperational, Pangu6
+
 
 from forecast_config import initialization_dates, load_forecast_config, output_basename
 
@@ -175,7 +175,10 @@ def main():
     )
 
     t0 = time.perf_counter()
-    model_type = {"GraphCastOperational": GraphCastOperational, "Pangu6": Pangu6}[cfg.model_name]
+    if cfg.model_name == "Pangu6":
+        from earth2studio.models.px import Pangu6 as model_type
+    else:
+        from earth2studio.models.px import GraphCastOperational as model_type
     pkg = model_type.load_default_package()
     model = model_type.load_model(pkg)
     data = ARCO()
