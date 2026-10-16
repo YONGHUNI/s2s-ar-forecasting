@@ -9,8 +9,6 @@
 #SBATCH --gres=gpu:L40S:1
 #SBATCH --mem=64G
 #SBATCH --time=02:00:00
-#SBATCH --output=logs/pangu-env-%j.out
-#SBATCH --error=logs/pangu-env-%j.err
 
 set -euo pipefail
 
@@ -33,15 +31,9 @@ nvidia-smi
 ) 9>"$HOME/.cache/rootless-nix-bootstrap.lock"
 
 cd "$PROJECT"
+echo "job=$SLURM_JOB_ID node=$(hostname) commit=$(git rev-parse HEAD)"
 "$NIX" develop --command bash -c '
-  set -euo pipefail
-  MANIFEST="$1"
-  PROJECT="$2"
-  pixi install --manifest-path "$MANIFEST"
-  ENV_LIB="$PROJECT/environments/pangu/.pixi/envs/default/lib"
-  pixi run --manifest-path "$MANIFEST" --locked \
-    env LD_LIBRARY_PATH="$ENV_LIB:\${LD_LIBRARY_PATH:-}" \
-    python scripts/test_pangu_environment.py
-' bash "$MANIFEST" "$PROJECT"
-
-echo "Pangu environment validation passed."
+ set -euo pipefail
+ project="$1"
+ bash "$project/scripts/pangu_pixi_run.sh" python -u scripts/test_pangu_environment.py
+' bash "$PROJECT"
