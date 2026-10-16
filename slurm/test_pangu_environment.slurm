@@ -37,18 +37,4 @@ cd "$PROJECT"
   set -euo pipefail
   MANIFEST="$1"
   pixi install --manifest-path "$MANIFEST"
-  pixi run --manifest-path "$MANIFEST" --locked python -c '\''import importlib.metadata as md
-import torch
-import onnxruntime as ort
-from earth2studio.models.px import Pangu6
-print("earth2studio:", md.version("earth2studio"))
-print("torch:", torch.__version__)
-print("Pangu6 import: OK")
-print("CUDA:", torch.cuda.is_available())
-print("ONNX providers:", ort.get_available_providers())
-assert torch.cuda.is_available(), "CUDA unavailable"
-assert "CUDAExecutionProvider" in ort.get_available_providers(), "ONNX Runtime CUDA provider unavailable"
-'\''
-' bash "$MANIFEST"
-
-echo "Pangu environment validation passed."
+  pixi run --manifest-path "$MANIFEST" --locked python scripts/test_pangu_environment.py
