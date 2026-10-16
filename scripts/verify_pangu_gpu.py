@@ -3,6 +3,7 @@
 import collections
 import json
 import os
+import shutil
 from datetime import datetime
 from pathlib import Path
 
@@ -58,7 +59,7 @@ for n, session in enumerate(_sessions):
     )
     totals.update(counts)
     dest = root / f"onnx-profile-{job}-{n}.json"
-    profile_file.replace(dest)
+    shutil.move(str(profile_file), str(dest))
     print(f"Session {n}: providers={session.get_providers()}, nodes={dict(counts)}, profile={dest}",
           flush=True)
 
