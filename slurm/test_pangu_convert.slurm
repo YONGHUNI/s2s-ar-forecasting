@@ -9,22 +9,23 @@
 
 set -euo pipefail
 PROJECT="${SLURM_SUBMIT_DIR:?Submit from repository root}"
-MANIFEST="$PROJECT/environments/pangu/pixi.toml"
-NIX="$HOME/.local/bin/nix"
-BOOTSTRAP="$HOME/rootless-nix-bootstrap"
-mkdir -p "$HOME/.cache"
-(
- flock -x 9
- "$BOOTSTRAP/bootstrap.sh" --store-root "/lscratch/$USER/.nix"
-) 9>"$HOME/.cache/rootless-nix-bootstrap.lock"
+ENV_DIR="$PROJECT/environments/pangu/.pixi/envs/default"
+PYTHON="$ENV_DIR/bin/python"
 cd "$PROJECT"
+
+if [[ ! -x "$PYTHON" ]]; then
+  echo "Pangu environment Python missing: $PYTHON" >&2
+  echo "Install the locked Pangu environment on a network-enabled compute node first." >&2
+  exit 1
+fi
+
+export LD_LIBRARY_PATH="$ENV_DIR/lib:${LD_LIBRARY_PATH:-}"
+export PATH="$ENV_DIR/bin:$PATH"
+export OMP_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export PYTHONUNBUFFERED=1
+
 echo "job=$SLURM_JOB_ID node=$(hostname) git=$(git rev-parse HEAD)"
-"$NIX" develop --command bash -c '
- set -euo pipefail
- manifest="$1"
- project="$2"
- lib="$project/environments/pangu/.pixi/envs/default/lib"
- pixi run --manifest-path "$manifest" --locked \
-   env LD_LIBRARY_PATH="$lib:${LD_LIBRARY_PATH:-}" \
-   python -u scripts/convert_pangu_42day_test.py
-' bash "$MANIFEST" "$PROJECT"
+echo "python=$PYTHON"
+"$PYTHON" -u scripts/convert_pangu_42day_test.py
