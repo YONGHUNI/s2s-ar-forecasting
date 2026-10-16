@@ -175,7 +175,7 @@ def main():
     )
 
     t0 = time.perf_counter()
-    model_type = Pangu6 if len(cfg.variables) == 69 else GraphCastOperational
+    model_type = {"GraphCastOperational": GraphCastOperational, "Pangu6": Pangu6}[cfg.model_name]
     pkg = model_type.load_default_package()
     model = model_type.load_model(pkg)
     data = ARCO()
