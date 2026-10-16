@@ -279,3 +279,9 @@ conversion starts; this is an unresolved infrastructure preflight and must be
 checked with the pilot job.
 
 After validation, the default can be switched from pilot to operational.
+
+## Shared implementation (October 2026)
+
+Both GraphCast and Pangu now use the common Python entrypoints `scripts/run_forecast.py`, `scripts/forecast_config.py`, and `scripts/convert_netcdf.py`. The model is selected using each configuration file's `model.name`; Slurm jobs continue to use their own model-specific Pixi environments and resource requests. The model-specific submit scripts remain separate. NetCDF I/O logic stays in `scripts/netcdf_conversion.py`. The GraphCast QC module remains model-specific.
+
+The refactor was checked for Slurm references and model dispatch statically; a post-refactor compute-node smoke test has not yet been run. Do not launch the 607-case operation until that smoke test passes.
