@@ -69,6 +69,6 @@ srun --ntasks="$SLURM_NTASKS" \
   export NUMEXPR_NUM_THREADS="$SLURM_CPUS_PER_TASK"
   echo "Pangu producer=$SLURM_ARRAY_TASK_ID shards=$NUM_SHARDS config=$CONFIG gpu=$CUDA_VISIBLE_DEVICES"
   pixi run -e pangu --locked -- bash scripts/pixi_exec.sh \
-    python -u scripts/run_pangu_forecast.py \
+    python -u scripts/run_forecast.py \
     --config "$CONFIG" --worker "$SLURM_ARRAY_TASK_ID" --num-workers "$NUM_SHARDS"
 '
