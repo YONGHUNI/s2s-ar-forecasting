@@ -38,3 +38,6 @@ cd "$PROJECT"
   MANIFEST="$1"
   pixi install --manifest-path "$MANIFEST"
   pixi run --manifest-path "$MANIFEST" --locked python scripts/test_pangu_environment.py
+' bash "$MANIFEST"
+
+echo "Pangu environment validation passed."
