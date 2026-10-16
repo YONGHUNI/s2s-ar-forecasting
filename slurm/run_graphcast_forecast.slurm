@@ -88,7 +88,7 @@ srun     --ntasks="$SLURM_NTASKS"     --cpus-per-task="$SLURM_CPUS_PER_TASK"    
         echo "GPU_NAME=$GPU_NAME JAX_COMPILATION_CACHE_DIR=$JAX_COMPILATION_CACHE_DIR"
 
         pixi run -e graphcast \
-            python scripts/run_graphcast_forecast.py \
+            python scripts/run_forecast.py \
             --config "$CONFIG" \
             --worker "$SLURM_ARRAY_TASK_ID" \
             --num-workers "$NUM_SHARDS"
