@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 
 #SBATCH --job-name=graphcast-fcst
-#SBATCH --partition=gpu_p
+#SBATCH --partition=hu_p
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --gres=gpu:H100:1
+#SBATCH --gres=gpu:L40S:1
 #SBATCH --mem=128G
 #SBATCH --time=10:00:00
-#SBATCH --array=0-19%8
+#SBATCH --array=0-19%4
 #SBATCH --requeue
 #SBATCH --output=graphcast-forecast-%A_%a.out
 #SBATCH --error=graphcast-forecast-%A_%a.err
@@ -16,7 +16,7 @@
 set -euo pipefail
 
 PROJECT="${PROJECT:-${SLURM_SUBMIT_DIR:?Submit this job from the repository root}}"
-CONFIG="${CONFIG:-config/graphcast_operational_deterministic.yaml}"
+CONFIG="${CONFIG:-config/graphcast_operational.yaml}"
 BOOTSTRAP="$HOME/rootless-nix-bootstrap"
 NIX="$HOME/.local/bin/nix"
 
@@ -66,7 +66,12 @@ srun     --ntasks="$SLURM_NTASKS"     --cpus-per-task="$SLURM_CPUS_PER_TASK"    
         export OPENBLAS_NUM_THREADS="$SLURM_CPUS_PER_TASK"
         export MKL_NUM_THREADS="$SLURM_CPUS_PER_TASK"
         export NUMEXPR_NUM_THREADS="$SLURM_CPUS_PER_TASK"
-        export XLA_FLAGS=--xla_gpu_exclude_nondeterministic_ops
+        # Strict XLA deterministic-kernel mode is intentionally disabled for
+        # production because it causes a large performance penalty on L40S GPUs.
+        #
+        # To reproduce the strict deterministic-kernel experiment, enable:
+        # export XLA_FLAGS=--xla_gpu_exclude_nondeterministic_ops
+        unset XLA_FLAGS
 
         GPU_NAME="$(nvidia-smi --query-gpu=name --format=csv,noheader | head -n1)"
         JAX_CACHE_TAG="$(
@@ -79,7 +84,7 @@ srun     --ntasks="$SLURM_NTASKS"     --cpus-per-task="$SLURM_CPUS_PER_TASK"    
         export JAX_COMPILATION_CACHE_DIR="/scratch/$USER/weather-ai/jax-cache/$JAX_CACHE_TAG"
         mkdir -p "$JAX_COMPILATION_CACHE_DIR"
 
-        echo "Array producer=$SLURM_ARRAY_TASK_ID logical_shards=$NUM_SHARDS submitted_tasks=$SLURM_ARRAY_TASK_COUNT restart_count=${SLURM_RESTART_COUNT:-0} CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES CONFIG=$CONFIG XLA_FLAGS=$XLA_FLAGS"
+        echo "Array producer=$SLURM_ARRAY_TASK_ID logical_shards=$NUM_SHARDS submitted_tasks=$SLURM_ARRAY_TASK_COUNT restart_count=${SLURM_RESTART_COUNT:-0} CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES CONFIG=$CONFIG XLA_FLAGS=${XLA_FLAGS:-<unset>}"
         echo "GPU_NAME=$GPU_NAME JAX_COMPILATION_CACHE_DIR=$JAX_COMPILATION_CACHE_DIR"
 
         pixi run -e graphcast \
