@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
-CONFIG="${CONFIG:-config/pangu_operational.yaml}"
+CONFIG="${CONFIG:-config/pangu_pilot.yaml}"
 [[ -f "$CONFIG" ]] || { echo "Missing Pangu config: $CONFIG" >&2; exit 1; }
 [[ -f "$ROOT/pixi.lock" ]] || { echo "Missing root Pixi lockfile" >&2; exit 1; }
 
