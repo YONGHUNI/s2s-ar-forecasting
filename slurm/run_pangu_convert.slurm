@@ -64,7 +64,7 @@ srun --ntasks=1 --cpus-per-task="$SLURM_CPUS_PER_TASK" \
   export NUMEXPR_NUM_THREADS=1
   echo "Pangu converter CONFIG=$CONFIG"
   pixi run -e graphcast --locked -- bash scripts/pixi_exec.sh \
-    python -u scripts/convert_pangu_netcdf.py --config "$CONFIG"
+    python -u scripts/convert_netcdf.py --config "$CONFIG"
 '
 status=$?
 set -e
