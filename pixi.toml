@@ -52,7 +52,12 @@ torch-harmonics = {
     rev = "a632ca748a12bd9f74dbc1e00653317810991f74"
 }
 
+[feature.postprocess.dependencies]
+pyyaml = ">=6.0,<7"
+netcdf4 = ">=1.7,<2"
+
 [environments]
 pangu = ["pangu"]
 graphcast = ["graphcast"]
 sfno = ["sfno"]
+postprocess = ["postprocess"]

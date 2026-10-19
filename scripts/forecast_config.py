@@ -120,9 +120,9 @@ def load_forecast_config(path: str | Path) -> ForecastConfig:
     converter = raw.get("converter", {})
     validation = raw.get("validation", {})
 
-    if model.get("name") not in ("GraphCastOperational", "Pangu6"):
+    if model.get("name") not in ("GraphCastOperational", "Pangu6", "SFNO"):
         raise ValueError(
-            "Supported models: GraphCastOperational, Pangu6"
+            "Supported models: GraphCastOperational, Pangu6, SFNO"
         )
 
     start_date = date.fromisoformat(str(experiment["start_date"]))
@@ -257,8 +257,9 @@ def load_forecast_config(path: str | Path) -> ForecastConfig:
 
 def output_basename(config: ForecastConfig, init_date: date) -> str:
     stamp = init_date.strftime("%Y%m%d")
-
-    return (
-        f"{'graphcast_operational' if config.model_name == 'GraphCastOperational' else 'pangu6'}_{stamp}_"
-        f"{config.forecast_days}day_subset"
-    )
+    prefixes = {
+        "GraphCastOperational": "graphcast_operational",
+        "Pangu6": "pangu6",
+        "SFNO": "sfno",
+    }
+    return f"{prefixes[config.model_name]}_{stamp}_{config.forecast_days}day_subset"

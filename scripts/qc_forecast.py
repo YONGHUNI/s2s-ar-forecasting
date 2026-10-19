@@ -20,6 +20,8 @@ from qc_graphcast import sampled_variable_stats, full_variable_stats
 UNITS = {
     "msl": "Pa", "t2m": "K", "tp06": "m",
     "u10m": "m s**-1", "v10m": "m s**-1",
+    "u100m": "m s**-1", "v100m": "m s**-1",
+    "sp": "Pa", "tcwv": "kg m**-2",
     "t": "K", "u": "m s**-1", "v": "m s**-1",
     "q": "kg kg**-1", "z": "m**2 s**-2",
 }
