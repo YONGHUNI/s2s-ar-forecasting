@@ -8,7 +8,6 @@ from __future__ import annotations
 import argparse
 import math
 from pathlib import Path
-import sys
 import time
 
 from netCDF4 import Dataset
@@ -55,10 +54,10 @@ def main() -> None:
                 raise SystemExit(f"{name}: negative/finite counts differ")
             for key, lhs in old_stats.items():
                 rhs = new_stats[key]
-                if isinstance(lhs, (int, float)) and isinstance(rhs, (int, float)):
-                    if not math.isclose(lhs, rhs, rel_tol=1e-6, abs_tol=1e-6):
+                if key in ("n_total", "n_finite", "n_missing", "n_inf"):
+                    if lhs != rhs:
                         raise SystemExit(f"{name}: {key} differs: {lhs} vs {rhs}")
-                elif lhs != rhs:
+                elif not math.isclose(lhs, rhs, rel_tol=1e-6, abs_tol=1e-6):
                     raise SystemExit(f"{name}: {key} differs: {lhs} vs {rhs}")
             print("  QC statistics: MATCH", flush=True)
 
