@@ -12,7 +12,6 @@ import numpy as np
 from qc_graphcast import (
     empty_state,
     finish_state,
-    full_variable_stats,
     merge_array,
     sampled_variable_stats,
 )
