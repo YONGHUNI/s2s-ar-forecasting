@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 
 #SBATCH --job-name=sfno-fcst
-#SBATCH --partition=gpu_p
+#SBATCH --partition=hu_p
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --gres=gpu:H100:1
+#SBATCH --gres=gpu:L40S:1
 #SBATCH --mem=128G
 #SBATCH --time=10:00:00
 #SBATCH --array=0-19%2
