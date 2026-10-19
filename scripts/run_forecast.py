@@ -201,6 +201,8 @@ def main():
     t0 = time.perf_counter()
     if cfg.model_name == "Pangu6":
         from earth2studio.models.px import Pangu6 as model_type
+    elif cfg.model_name == "SFNO":
+        from earth2studio.models.px import SFNO as model_type
     else:
         from earth2studio.models.px import GraphCastOperational as model_type
     pkg = model_type.load_default_package()
