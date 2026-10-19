@@ -35,9 +35,7 @@ weathernext = {
 [feature.sfno.dependencies]
 pytorch-gpu = "*"
 cuda-version = "13.0.*"
-
-[feature.sfno.pypi-options]
-no-build-isolation = ["torch-harmonics"]
+torch-harmonics = "==0.8.1"
 
 [feature.sfno.pypi-dependencies]
 earth2studio = { version = ">=0.18.0,<0.19", extras = ["sfno"] }
@@ -47,10 +45,6 @@ makani = {
     rev = "b38fcb2799d7dbc146fa60459f3f9823394a8bf1"
 }
 
-torch-harmonics = {
-    git = "https://github.com/NVIDIA/torch-harmonics.git",
-    rev = "a632ca748a12bd9f74dbc1e00653317810991f74"
-}
 
 [feature.postprocess.dependencies]
 pyyaml = ">=6.0,<7"
