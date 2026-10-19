@@ -10,12 +10,13 @@ from datetime import datetime
 from pathlib import Path
 import random
 import statistics
+import time
 
 import numpy as np
 from netCDF4 import Dataset, num2date
 
 from forecast_config import load_forecast_config, initialization_dates, output_basename
-from qc_graphcast import sampled_variable_stats, full_variable_stats
+from qc_sampling import variable_stats
 
 UNITS = {
     "msl": "Pa", "t2m": "K", "tp06": "m",
@@ -122,41 +123,38 @@ def lightweight(files, cfg, dates, metadata_workers):
     return not errors and len(files) == len(dates)
 
 
-def scan_file(path, variables, lead_indices, stride, mode, chunk):
+def scan_file(path, variables, lead_indices, stride, mode, chunk, sample_read_mode, progress_every):
     rows = []
     date = path.name.split("_")[-3]
     month = int(date[4:6])
     season = int(date[:4]) if month >= 10 else int(date[:4]) - 1
+    started = time.perf_counter()
     with Dataset(path) as ds:
-        for name in variables:
+        for i, name in enumerate(variables, 1):
+            step_start = time.perf_counter()
             var = ds.variables[name]
-            stats = (sampled_variable_stats(var, lead_indices, stride)
-                     if mode == "sampled" else full_variable_stats(var, chunk))
-            # Additional diagnostics: frequency and magnitude of negative humidity.
-            # Read the exact same sample/chunks; do not modify original NetCDF.
-            neg = 0
-            finite = 0
-            if name.startswith("q") and name[1:].isdigit():
-                if mode == "sampled":
-                    for lead in lead_indices:
-                        arr = np.ma.asarray(var[:, lead, ::stride, ::stride])
-                        values = arr.compressed()
-                        values = values[np.isfinite(values)]
-                        neg += int(np.count_nonzero(values < 0))
-                        finite += values.size
-                else:
-                    for start in range(0, var.shape[1], chunk):
-                        arr = np.ma.asarray(var[:, start:start + chunk])
-                        values = arr.compressed()
-                        values = values[np.isfinite(values)]
-                        neg += int(np.count_nonzero(values < 0))
-                        finite += values.size
+            stats, neg, finite = variable_stats(
+                var,
+                mode=mode,
+                lead_indices=lead_indices,
+                spatial_stride=stride,
+                lead_chunk=chunk,
+                sample_read_mode=sample_read_mode,
+                count_negative=name.startswith("q") and name[1:].isdigit(),
+            )
             rows.append(dict(file=path.name, init_date=date, season=season,
                              variable=name, units=getattr(var, "units", ""),
                              mode=mode, spatial_stride=stride if mode == "sampled" else 1,
                              negative_count=neg if finite else "",
                              negative_fraction=neg / finite if finite else "",
                              **stats))
+            if i % progress_every == 0 or i == len(variables):
+                print(
+                    f"[{path.name}] variables {i}/{len(variables)}; "
+                    f"last={name} {time.perf_counter()-step_start:.1f}s; "
+                    f"elapsed={time.perf_counter()-started:.1f}s",
+                    flush=True,
+                )
     return rows
 
 
@@ -174,6 +172,9 @@ def main():
     p.add_argument("--lead-days", default="0,7,14,21,28,35,42")
     p.add_argument("--spatial-stride", type=int, default=4)
     p.add_argument("--lead-chunk", type=int, default=16)
+    p.add_argument("--sample-read-mode", choices=["contiguous", "legacy"], default="contiguous",
+                   help="Contiguous reads full spatial planes before sampling; legacy uses netCDF4 strided hyperslabs")
+    p.add_argument("--progress-every", type=int, default=5, help="Progress update interval in variables")
     args = p.parse_args()
     cfg = load_forecast_config(args.config)
     dates = initialization_dates(cfg)
@@ -183,7 +184,7 @@ def main():
         raise SystemExit(f"File count mismatch: {len(files)} != {len(dates)}")
     if not args.skip_lightweight and not lightweight(files, cfg, dates, args.metadata_workers):
         raise SystemExit("Lightweight QC FAILED; deep QC not started")
-    if args.workers < 1 or args.metadata_workers < 1 or args.samples_per_season < 1 or args.spatial_stride < 1 or args.lead_chunk < 1:
+    if args.workers < 1 or args.metadata_workers < 1 or args.samples_per_season < 1 or args.spatial_stride < 1 or args.lead_chunk < 1 or args.progress_every < 1:
         raise SystemExit("workers, samples-per-season, stride, and chunk must be positive")
     lead_days = [int(v) for v in args.lead_days.split(",")]
     if any(d < 0 or d > cfg.forecast_days or d * 24 % cfg.hours_per_step for d in lead_days):
@@ -201,12 +202,14 @@ def main():
             raise SystemExit(f"Too few files for season {season}")
         sample.extend(rng.sample(sorted(group), args.samples_per_season))
     sample.sort()
-    print(f"{cfg.model_name} deep QC: {len(sample)} files, {args.deep_mode}", flush=True)
+    print(f"{cfg.model_name} deep QC: {len(sample)} files, {args.deep_mode}; "
+          f"read_mode={args.sample_read_mode}; progress_every={args.progress_every}", flush=True)
     rows, errors = [], []
     with ProcessPoolExecutor(max_workers=args.workers) as pool:
         future_map = {
             pool.submit(scan_file, path, cfg.variables, leads,
-                        args.spatial_stride, args.deep_mode, args.lead_chunk): path
+                        args.spatial_stride, args.deep_mode, args.lead_chunk,
+                        args.sample_read_mode, args.progress_every): path
             for path in sample
         }
         for i, future in enumerate(as_completed(future_map), 1):
