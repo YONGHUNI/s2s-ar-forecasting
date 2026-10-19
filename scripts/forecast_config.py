@@ -257,8 +257,9 @@ def load_forecast_config(path: str | Path) -> ForecastConfig:
 
 def output_basename(config: ForecastConfig, init_date: date) -> str:
     stamp = init_date.strftime("%Y%m%d")
-
-    return (
-        f"{{'GraphCastOperational': 'graphcast_operational', 'Pangu6': 'pangu6', 'SFNO': 'sfno'}[config.model_name]}_{stamp}_"
-        f"{config.forecast_days}day_subset"
-    )
+    prefixes = {
+        "GraphCastOperational": "graphcast_operational",
+        "Pangu6": "pangu6",
+        "SFNO": "sfno",
+    }
+    return f"{prefixes[config.model_name]}_{stamp}_{config.forecast_days}day_subset"
