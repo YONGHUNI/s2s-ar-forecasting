@@ -41,6 +41,10 @@ _SURFACE_METADATA = {
         "long_name": "10 metre V wind component",
         "units": "m s**-1",
     },
+    "u100m": {"long_name": "100 metre U wind component", "units": "m s**-1"},
+    "v100m": {"long_name": "100 metre V wind component", "units": "m s**-1"},
+    "sp": {"long_name": "Surface pressure", "units": "Pa"},
+    "tcwv": {"long_name": "Total column water vapour", "units": "kg m**-2"},
 }
 
 _PRESSURE_METADATA = {
