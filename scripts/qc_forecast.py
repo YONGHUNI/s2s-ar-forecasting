@@ -42,7 +42,7 @@ def _check_metadata_one(path, cfg):
                 missing = set(cfg.variables) - set(ds.variables)
                 if missing:
                     errors.append((path.name, "missing vars: " + ",".join(sorted(missing))))
-                    continue
+                    return errors, None
                 extra = {name for name, var in ds.variables.items()
                          if var.dimensions == ("time", "lead_time", "lat", "lon")} - set(cfg.variables)
                 if extra:
