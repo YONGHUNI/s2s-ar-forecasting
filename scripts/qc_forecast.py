@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shared, read-only NetCDF QC for GraphCastOperational and Pangu6."""
+"""Shared, read-only NetCDF QC for GraphCast, Pangu6, and SFNO."""
 from __future__ import annotations
 
 import argparse
@@ -133,6 +133,13 @@ def scan_file(path, variables, lead_indices, stride, mode, chunk, sample_read_mo
         for i, name in enumerate(variables, 1):
             step_start = time.perf_counter()
             var = ds.variables[name]
+            if i == 1:
+                print(
+                    f"[{path.name}] first variable {name}: "
+                    f"shape={var.shape}; chunks={var.chunking()}; "
+                    f"filters={var.filters()}",
+                    flush=True,
+                )
             stats, neg, finite = variable_stats(
                 var,
                 mode=mode,
