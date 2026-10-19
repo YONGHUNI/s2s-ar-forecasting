@@ -29,19 +29,10 @@ def units_for(name):
     return UNITS.get(name, UNITS.get(name[0]))
 
 
-def lightweight(files, cfg, dates):
+def _check_metadata_one(path, cfg):
     errors = []
-    expected = {output_basename(cfg, d) + ".nc" for d in dates}
-    actual = {p.name for p in files}
-    errors += [(name, "missing") for name in sorted(expected - actual)]
-    errors += [(name, "unexpected") for name in sorted(actual - expected)]
-    sizes = [p.stat().st_size / 1024**3 for p in files]
-    median = statistics.median(sizes) if sizes else 0
-    reference = None
-    for i, path in enumerate(files, 1):
-        if median and path.stat().st_size / 1024**3 < 0.8 * median:
-            errors.append((path.name, "size below 80% of median"))
-        try:
+    shapes = None
+    try:
             with Dataset(path) as ds:
                 expected_dims = {"time": 1, "lead_time": cfg.expected_lead_times,
                                  "lat": 721, "lon": 1440}
@@ -85,20 +76,47 @@ def lightweight(files, cfg, dates):
                         if (getattr(var, "pressure_level", None) != int(name[1:])
                                 or getattr(var, "pressure_level_units", None) != "hPa"):
                             errors.append((path.name, name + " pressure metadata"))
-                if reference is None:
-                    reference = shapes
-                elif shapes != reference:
-                    errors.append((path.name, "shape mismatch"))
-        except Exception as exc:
-            errors.append((path.name, "open/metadata: " + repr(exc)))
-        if i % 100 == 0:
-            print(f"[metadata {i}/{len(files)}]", flush=True)
+    except Exception as exc:
+        errors.append((path.name, "open/metadata: " + repr(exc)))
+    return errors, shapes
+
+
+def lightweight(files, cfg, dates, metadata_workers):
+    errors = []
+    expected = {output_basename(cfg, d) + ".nc" for d in dates}
+    actual = {p.name for p in files}
+    errors.extend((name, "missing") for name in sorted(expected - actual))
+    errors.extend((name, "unexpected") for name in sorted(actual - expected))
+    sizes = [p.stat().st_size / 1024**3 for p in files]
+    median = statistics.median(sizes) if sizes else 0
+    for path, size in zip(files, sizes):
+        if median and size < median * 0.8:
+            errors.append((path.name, "size below 80% of median"))
+
+    reference = None
+    with ProcessPoolExecutor(max_workers=metadata_workers) as pool:
+        futures = {pool.submit(_check_metadata_one, path, cfg): path for path in files}
+        for i, future in enumerate(as_completed(futures), 1):
+            path = futures[future]
+            try:
+                file_errors, shapes = future.result()
+                errors.extend(file_errors)
+                if shapes is not None:
+                    if reference is None:
+                        reference = shapes
+                    elif shapes != reference:
+                        errors.append((path.name, "shape mismatch"))
+            except Exception as exc:
+                errors.append((path.name, "worker failure: " + repr(exc)))
+            if i % 100 == 0 or i == len(files):
+                print(f"[metadata {i}/{len(files)}]", flush=True)
+
     print(f"Files: {len(files)} / {len(dates)}; size GiB "
           f"min/median/max: {min(sizes) if sizes else 0:.2f}/"
           f"{median:.2f}/{max(sizes) if sizes else 0:.2f}")
     print(f"Metadata errors: {len(errors)}", flush=True)
-    for name, reason in errors[:100]:
-        print(f"  {name}: {reason}")
+    for name, reason in sorted(errors)[:100]:
+        print(f"  {name}: {reason}", flush=True)
     return not errors and len(files) == len(dates)
 
 
@@ -146,6 +164,7 @@ def main():
     p.add_argument("--root")
     p.add_argument("--outdir", required=True)
     p.add_argument("--workers", type=int, default=4)
+    p.add_argument("--metadata-workers", type=int, default=4)
     p.add_argument("--samples-per-season", type=int, default=3)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--skip-lightweight", action="store_true")
@@ -160,9 +179,9 @@ def main():
     files = sorted(root.glob("*_42day_subset.nc"))
     if len(files) != len(dates):
         raise SystemExit(f"File count mismatch: {len(files)} != {len(dates)}")
-    if not args.skip_lightweight and not lightweight(files, cfg, dates):
+    if not args.skip_lightweight and not lightweight(files, cfg, dates, args.metadata_workers):
         raise SystemExit("Lightweight QC FAILED; deep QC not started")
-    if args.workers < 1 or args.samples_per_season < 1 or args.spatial_stride < 1 or args.lead_chunk < 1:
+    if args.workers < 1 or args.metadata_workers < 1 or args.samples_per_season < 1 or args.spatial_stride < 1 or args.lead_chunk < 1:
         raise SystemExit("workers, samples-per-season, stride, and chunk must be positive")
     lead_days = [int(v) for v in args.lead_days.split(",")]
     if any(d < 0 or d > cfg.forecast_days or d * 24 % cfg.hours_per_step for d in lead_days):
