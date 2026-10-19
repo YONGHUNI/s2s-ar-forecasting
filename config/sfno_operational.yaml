@@ -54,7 +54,7 @@ variables:
 
 output:
   compression_level: 2
-  zarr_backend: sync
+  zarr_backend: async
   write_mode: direct_staging
   async_pool_size: 4
   shard_lead_times: 1
