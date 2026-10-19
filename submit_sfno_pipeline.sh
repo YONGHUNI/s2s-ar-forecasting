@@ -13,12 +13,12 @@ if [[ "$CONFIG" != "config/sfno_pilot.yaml" && "${SFNO_PRODUCTION_CONFIRMED:-0}"
 fi
 
 # The pilot config must not launch 20 GPU jobs for a single initialization.
-if [[ -n "${PANGU_ARRAY:-}" ]]; then
-  ARRAY="$PANGU_ARRAY"
+if [[ -n "${SFNO_ARRAY:-}" ]]; then
+  ARRAY="$SFNO_ARRAY"
 elif [[ "$CONFIG" == "config/sfno_pilot.yaml" ]]; then
   ARRAY="0"
 else
-  ARRAY="0-19%2"
+  ARRAY="0-19%4"
 fi
 
 RUN_ID="$(date +'%Y%m%d_%H%M%S')"
