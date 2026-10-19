@@ -36,6 +36,8 @@ weathernext = {
 pytorch-gpu = "*"
 cuda-version = "13.0.*"
 torch-harmonics = "==0.8.1"
+cuda-driver-dev = "13.0.*"
+cuda-cudart-dev = "13.0.*"
 
 [feature.sfno.pypi-dependencies]
 earth2studio = { version = ">=0.18.0,<0.19", extras = ["sfno"] }
