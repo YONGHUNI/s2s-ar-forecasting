@@ -1198,6 +1198,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/sleef-3.9.0-ha0421bc_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/tbb-2023.1.0-hfd44327_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/tk-8.6.13-noxft_h1df4ec4_4.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/torch-harmonics-0.8.1-py312h8f1c0af_5.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/tornado-6.5.10-py312h5cc1888_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/triton-3.7.1-cuda130py312hc6dca4b_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/unicodedata2-18.0.0-py312h5cc1888_0.conda
@@ -1293,7 +1294,6 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/xarray-2026.2.0-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zarr-3.4.0-pyhc364b38_0.conda
       - pypi: git+https://github.com/NVIDIA/makani.git?rev=b38fcb2799d7dbc146fa60459f3f9823394a8bf1#b38fcb2799d7dbc146fa60459f3f9823394a8bf1
-      - pypi: git+https://github.com/NVIDIA/torch-harmonics.git?rev=a632ca748a12bd9f74dbc1e00653317810991f74#a632ca748a12bd9f74dbc1e00653317810991f74
       - pypi: https://files.pythonhosted.org/packages/04/4b/29cac41a4d98d144bf5f6d33995617b185d14b22401f75ca86f384e87ff1/h11-0.16.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/04/e1/1db9ecfb9f22a71624413ee158b933c18538aacfde77acbb7413cea21a6e/gcsfs-2026.8.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/09/86/63cdd5740f566fd9de2cadc106529adee0566f2fcafe69a65767eedc1681/onnx-1.23.0-cp312-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
@@ -5064,6 +5064,27 @@ packages:
     - tk >=8.6.13,<8.7.0a0
   size: 3566806
   timestamp: 1787272857910
+- conda: https://conda.anaconda.org/conda-forge/linux-64/torch-harmonics-0.8.1-py312h8f1c0af_5.conda
+  sha256: 83faa4db829eadc93d70388fad877c34e3038fb2f354b24aaa2402e385ee87ed
+  md5: 4815b5af69dd3ee046611870bebfddfe
+  depends:
+  - __glibc >=2.28,<3.0.a0
+  - cuda-version >=13.0,<14
+  - libgcc >=14
+  - libstdcxx >=14
+  - libtorch >=2.13.0,<2.14.0a0
+  - numpy >=1.22.4
+  - python >=3.12,<3.13.0a0
+  - python_abi 3.12.* *_cp312
+  - pytorch * cuda*
+  - pytorch >=2.13.0,<2.14.0a0
+  license: BSD-3-Clause
+  license_family: BSD
+  purls:
+  - pkg:pypi/torch-harmonics?source=hash-mapping
+  run_exports: {}
+  size: 372896
+  timestamp: 1785185290924
 - conda: https://conda.anaconda.org/conda-forge/linux-64/tornado-6.5.10-py312h5cc1888_0.conda
   sha256: f895c3ce9ca97435f08b376a4978df10815d0f3c3531feabbe668858b41e250f
   md5: b0414832500d750321eddce3822bea7b
@@ -6649,20 +6670,6 @@ packages:
   - moviepy>=1.0.3 ; extra == 'vis'
   - sirfshampoo ; extra == 'sirfshampoo'
   requires_python: '>=3.10'
-- pypi: git+https://github.com/NVIDIA/torch-harmonics.git?rev=a632ca748a12bd9f74dbc1e00653317810991f74#a632ca748a12bd9f74dbc1e00653317810991f74
-  name: torch-harmonics
-  version: 0.8.1
-  requires_dist:
-  - torch>=2.4.0
-  - numpy>=1.22.4
-  - pytest>=6.0.0 ; extra == 'dev'
-  - coverage>=6.5.0 ; extra == 'dev'
-  - requests ; extra == '2d3ds'
-  - tarfile ; extra == '2d3ds'
-  - tqdm ; extra == '2d3ds'
-  - pillow ; extra == '2d3ds'
-  - h5py ; extra == '2d3ds'
-  requires_python: '>=3.9'
 - pypi: git+https://github.com/google-deepmind/weathernext.git?rev=9c034db1ff412d5db6cbe6bb0c5c9afc5a267719#9c034db1ff412d5db6cbe6bb0c5c9afc5a267719
   name: weathernext
   version: 0.3.1.dev0
