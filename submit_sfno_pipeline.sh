@@ -7,6 +7,10 @@ cd "$ROOT"
 CONFIG="${CONFIG:-config/sfno_pilot.yaml}"
 [[ -f "$CONFIG" ]] || { echo "Missing SFNO config: $CONFIG" >&2; exit 1; }
 [[ -f "$ROOT/pixi.lock" ]] || { echo "Missing root Pixi lockfile" >&2; exit 1; }
+if [[ "$CONFIG" != "config/sfno_pilot.yaml" && "${SFNO_PRODUCTION_CONFIRMED:-0}" != "1" ]]; then
+  echo "SFNO production is blocked until the pilot is validated; set SFNO_PRODUCTION_CONFIRMED=1 after validation." >&2
+  exit 1
+fi
 
 # The pilot config must not launch 20 GPU jobs for a single initialization.
 if [[ -n "${PANGU_ARRAY:-}" ]]; then
