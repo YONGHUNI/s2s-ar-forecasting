@@ -57,3 +57,7 @@ The repository's existing Pixi `graphcast` environment is used to retrieve refer
 ### Geographic aspect ratio
 
 Each panel uses `imshow(..., aspect="equal")` in the original longitude/latitude coordinate system, instead of stretching pixels with `aspect="auto"`. This preserves the Plate Carrée longitude/latitude ratio (a full-global map is ~2:1 in degrees). The outer GIF canvas remains 16:9, and individual panels may have extra vertical whitespace. Equal degrees do not imply equal ground distances at different latitudes.
+
+### Compact 2×5 layout
+
+The 2×5 maps maintain equal longitude/latitude scale, but are rendered on a compact 19.2×5.8 inch canvas rather than a 16:9 canvas to remove large vertical gaps. A 16:9 canvas cannot tightly contain ten global maps in two rows without stretching or cropping maps. The new files are written as `graphcast_10panel_compact_YYYYMMDD.gif`, preserving earlier widescreen GIF files.

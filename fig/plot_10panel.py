@@ -154,7 +154,7 @@ def plot_one(cfg, index, *, max_frames=None):
     outdir = cfg["output"]["root"]
     outdir.mkdir(parents=True, exist_ok=True)
     suffix = "" if nframes == steps else f"_preview_{nframes}"
-    outfile = outdir / f"graphcast_10panel_wide_{init:%Y%m%d}{suffix}.gif"
+    outfile = outdir / f"graphcast_10panel_compact_{init:%Y%m%d}{suffix}.gif"
     if outfile.exists() and outfile.stat().st_size:
         print(f"SKIP {outfile}", flush=True)
         return
@@ -175,9 +175,9 @@ def plot_one(cfg, index, *, max_frames=None):
         precip_cmap = plt.get_cmap("turbo").copy()
         temp_cmap.set_bad((0, 0, 0, 0))
         precip_cmap.set_bad((0, 0, 0, 0))
-        fig, axes = plt.subplots(2, 5, figsize=(19.2, 10.8))
-        fig.subplots_adjust(left=.025, right=.985, top=.89, bottom=.145,
-                            wspace=.07, hspace=.18)
+        fig, axes = plt.subplots(2, 5, figsize=(19.2, 5.8))
+        fig.subplots_adjust(left=.025, right=.985, top=.89, bottom=.18,
+                            wspace=.07, hspace=.23)
         origin = "upper" if lat[0] > lat[-1] else "lower"
         extent = (float(np.min(lon)), float(np.max(lon)), float(np.min(lat)), float(np.max(lat)))
         titles = [
