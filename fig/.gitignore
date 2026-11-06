@@ -1,0 +1,6 @@
+output/
+logs/
+*.nc
+*.nc.partial
+*.gif
+__pycache__/

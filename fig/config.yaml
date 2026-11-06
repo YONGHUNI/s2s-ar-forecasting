@@ -1,0 +1,20 @@
+# Standalone, figure-only workflow. Existing forecast pipeline is untouched.
+forecast:
+  root: "/scratch/{user}/weather-ai/graphcast-operational-deterministic"
+  pattern: "graphcast_operational_*_42day_subset.nc"
+  expected_initializations: 607
+  steps: 169
+  hours_per_step: 6
+reference:
+  root: "/scratch/{user}/weather-ai/fig/era5-reference"
+  stride: 4
+output:
+  root: "/scratch/{user}/weather-ai/fig/figures"
+plot:
+  stride: 4
+  fps: 5
+  dpi: 85
+  temperature_celsius: true
+  precipitation_mm: true
+  percentiles: [90, 95, 99]
+  precipitation_negative_tolerance_m: 0.00001
