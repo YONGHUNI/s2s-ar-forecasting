@@ -207,7 +207,7 @@ def plot_one(cfg, index, *, max_frames=None):
                     cmap=temp_cmap if row == 0 else precip_cmap,
                     vmin=temp_low if row == 0 else 0.0,
                     vmax=temp_high if row == 0 else precip_high,
-                    aspect="auto", zorder=1)
+                    aspect="equal", zorder=1)
                 # Draw fixed geographic context under sparse extreme maps.
                 # Coastline is on top of the raster to stay visible.
                 if col in (1, 2, 3):
