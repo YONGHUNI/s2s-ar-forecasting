@@ -38,7 +38,7 @@ def normalize_precip(values, negative_tolerance_m):
     if finite.size and np.min(finite) < -float(negative_tolerance_m):
         print(f"QC WARNING: negative precipitation minimum {float(np.min(finite))*1000:.4f} mm; clipping to zero", flush=True)
     if finite.size and np.any(finite < 0):
-        print(f"Clipping {np.count_nonzero(finite < 0)} tiny negative precipitation cells", flush=True)
+        print(f"Clipping {np.count_nonzero(finite < 0)} negative precipitation cells for visualization", flush=True)
     return np.maximum(a, 0.0)
 
 
