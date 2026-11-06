@@ -15,6 +15,15 @@ export OMP_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 
-"$HOME/.local/bin/nix" develop --command \
+BOOTSTRAP="$HOME/rootless-nix-bootstrap"
+NIX="$HOME/.local/bin/nix"
+mkdir -p "$HOME/.cache"
+(
+  flock -x 9
+  cd "$BOOTSTRAP"
+  ./bootstrap.sh --store-root "/lscratch/$USER/.nix"
+) 9>"$HOME/.cache/rootless-nix-bootstrap.lock"
+
+"$NIX" develop --command \
   pixi run -e graphcast python -u fig/prepare_era5.py \
     --config fig/config.yaml --month-index "$SLURM_ARRAY_TASK_ID"

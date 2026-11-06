@@ -14,8 +14,7 @@ fi
 mkdir -p fig/logs
 PREP_CONCURRENCY="${PREP_CONCURRENCY:-4}"
 PLOT_CONCURRENCY="${PLOT_CONCURRENCY:-8}"
-COUNT=$("$HOME/.local/bin/nix" develop --command pixi run -e postprocess \
-  python fig/prepare_era5.py --config fig/config.yaml --count-months)
+COUNT=$(python3 fig/count_months.py)
 if [[ ! "$COUNT" =~ ^[0-9]+$ || "$COUNT" -lt 1 ]]; then
   echo "Invalid ERA5 month count: $COUNT" >&2
   exit 1

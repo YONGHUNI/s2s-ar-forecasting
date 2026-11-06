@@ -4,15 +4,12 @@ This one-off plotting workflow lives entirely in `fig/`. It does not change fore
 
 ## Requested figure
 
-One GIF per GraphCast initialization: **607 GIFs** if the configured forecast inventory contains all 607 files. Each GIF has **169 frames** (42 days at 6-hour intervals including lead 0) and **10 panels**, laid out as 5 rows × 2 columns:
+One GIF per GraphCast initialization: **607 GIFs** if the configured forecast inventory contains all 607 files. Each GIF has **169 frames** (42 days at 6-hour intervals including lead 0) and **10 panels**, laid out as 2 rows × 5 columns:
 
-| Row | T2m | 6-hour precipitation |
-|---|---|---|
-| 1 | GraphCast forecast | GraphCast forecast |
-| 2 | Forecast at/above spatial-temporal P90 | Forecast at/above spatial-temporal P90 |
-| 3 | Forecast at/above spatial-temporal P95 | Forecast at/above spatial-temporal P95 |
-| 4 | Forecast at/above spatial-temporal P99 | Forecast at/above spatial-temporal P99 |
-| 5 | ERA5 reference at valid time | ERA5 reference at valid time |
+| Row | Forecast | P90 | P95 | P99 | ERA5 |
+|---|---|---|---|---|---|
+| T2m | GraphCast | ≥ P90 | ≥ P95 | ≥ P99 | ERA5 reference |
+| PR (6h) | GraphCast | ≥ P90 and positive | ≥ P95 and positive | ≥ P99 and positive | ERA5 reference |
 
 Each P90/P95/P99 is computed **once per initialization and variable**, from ALL finite values over the original forecast NetCDF's lead-time, latitude, and longitude dimensions (before spatial sampling for plotting). Thresholds stay fixed across the 169 frames. These are whole-domain spatial-temporal thresholds, **not** climatological or local extreme thresholds. Zero-precipitation cells remain in the precipitation distribution.
 
@@ -22,7 +19,7 @@ ERA5 is the ARCO ERA5 reanalysis data source used as GraphCast's inference initi
 
 ## Paths and environments
 
-Edit `fig/config.yaml` if the forecast files are stored elsewhere. Path tokens `{user}` resolve to the Linux account. Derived data, logs and GIFs go under `/scratch/$USER/weather-ai/fig/`, **not** into the Git repository.
+The default forecast root is `/scratch/$USER/weather-ai/graphcast-operational` (the operational, not deterministic subdirectory). Edit `fig/config.yaml` if the forecast files are stored elsewhere. Path tokens `{user}` resolve to the Linux account. Derived data, logs and GIFs go under `/scratch/$USER/weather-ai/fig/`, **not** into the Git repository.
 
 The repository's existing Pixi `graphcast` environment is used to retrieve reference ERA5 via Earth2Studio ARCO; `postprocess` is used to render GIFs. No changes to `pixi.toml`, the lockfile, model inference or existing Slurm files are required.
 
@@ -48,3 +45,11 @@ The repository's existing Pixi `graphcast` environment is used to retrieve refer
 * GIF generation and remote downloads can create significant storage and network load. Validate one monthly reference and one GIF before submitting the full production arrays.
 * Output files are written through temporary paths and renamed only after successful completion. Existing completed files are skipped, enabling restart.
 * Nothing has been run on Sapelo2 by committing this code. Actual server-side results and costs require an execution test.
+
+## Display settings (2026-11 widescreen)
+- Fixed **16:9** 2×5 arrangement, variable per row (T2m above precipitation).
+- Static Natural Earth 1:110m shoreline outlines appear on the P90/P95/P99 panels to retain geographic context where the threshold mask is sparse. Bundled data are public domain: https://github.com/nvkelso/natural-earth-vector/blob/master/geojson/ne_110m_land.geojson
+- The same temperature colour limits, **−40 to 40 °C**, and 6-hour precipitation limits, **0 to 60 mm**, are used in ALL 607 GIFs. Colourbar ends use extends; values outside the displayed range are coloured using saturated end colours, not edited or removed.
+- Nonphysical negative forecast precipitation is clipped **for display and quantile calculation only**; original NetCDF untouched. QC logs record the minimum and clipped count. Zero-rain cells count toward thresholds but are omitted from extreme-rainfall overlays.
+- Thresholds still vary by initialization because they are calculated from each forecast NetCDF's entire time×space field; only the display colour limits are universal.
+- Sapelo-specific rootless Nix bootstrap is included in both figure Slurm scripts; submit helper no longer calls Nix on the submit node.

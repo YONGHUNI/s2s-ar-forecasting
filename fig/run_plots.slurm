@@ -16,6 +16,15 @@ export OPENBLAS_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 export MPLBACKEND=Agg
 
-"$HOME/.local/bin/nix" develop --command \
+BOOTSTRAP="$HOME/rootless-nix-bootstrap"
+NIX="$HOME/.local/bin/nix"
+mkdir -p "$HOME/.cache"
+(
+  flock -x 9
+  cd "$BOOTSTRAP"
+  ./bootstrap.sh --store-root "/lscratch/$USER/.nix"
+) 9>"$HOME/.cache/rootless-nix-bootstrap.lock"
+
+"$NIX" develop --command \
   pixi run -e postprocess python -u -m fig.plot_10panel \
     --config fig/config.yaml --index "$SLURM_ARRAY_TASK_ID"

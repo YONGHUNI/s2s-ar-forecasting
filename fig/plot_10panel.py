@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from datetime import datetime, timedelta
 from contextlib import ExitStack
 import os
@@ -13,6 +14,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.animation as animation
 import matplotlib.pyplot as plt
+from matplotlib.collections import LineCollection
 import numpy as np
 import yaml
 from netCDF4 import Dataset, date2num
@@ -34,7 +36,7 @@ def normalize_precip(values, negative_tolerance_m):
     a = np.asarray(np.ma.filled(np.ma.asarray(values), np.nan), dtype="f4")
     finite = a[np.isfinite(a)]
     if finite.size and np.min(finite) < -float(negative_tolerance_m):
-        raise ValueError(f"Precipitation < -tolerance: minimum {float(np.min(finite))} m")
+        print(f"QC WARNING: negative precipitation minimum {float(np.min(finite))*1000:.4f} mm; clipping to zero", flush=True)
     if finite.size and np.any(finite < 0):
         print(f"Clipping {np.count_nonzero(finite < 0)} tiny negative precipitation cells", flush=True)
     return np.maximum(a, 0.0)
@@ -95,6 +97,34 @@ def setup_reference(stack, cfg, valid_times, lat, lon, stride):
     return cache
 
 
+def coastline_segments(longitudes):
+    """Coastline outlines from bundled Natural Earth 1:110m land polygons.
+
+    Split geometry crossing the lon=0/360 seam instead of drawing
+    spurious lines across the map. Drawn once, never per GIF frame.
+    """
+    source = Path(__file__).with_name("ne_110m_land.geojson")
+    with source.open(encoding="utf-8") as stream:
+        features = json.load(stream)["features"]
+    use_360 = float(np.nanmin(longitudes)) >= 0
+    segments = []
+    for feature in features:
+        geom = feature["geometry"]
+        polygons = [geom["coordinates"]] if geom["type"] == "Polygon" else geom["coordinates"]
+        for polygon in polygons:
+            for ring in polygon:
+                coords = np.asarray(ring, dtype="f8")
+                if coords.ndim != 2 or coords.shape[0] < 2:
+                    continue
+                if use_360:
+                    coords[:, 0] = np.mod(coords[:, 0], 360.0)
+                cuts = np.where(np.abs(np.diff(coords[:, 0])) > 180.0)[0] + 1
+                for part in np.split(coords, cuts):
+                    if len(part) >= 2:
+                        segments.append(part)
+    return segments
+
+
 def plot_one(cfg, index, *, max_frames=None):
     files, _ = inventory(cfg)
     if not 0 <= index < len(files):
@@ -124,7 +154,7 @@ def plot_one(cfg, index, *, max_frames=None):
     outdir = cfg["output"]["root"]
     outdir.mkdir(parents=True, exist_ok=True)
     suffix = "" if nframes == steps else f"_preview_{nframes}"
-    outfile = outdir / f"graphcast_10panel_{init:%Y%m%d}{suffix}.gif"
+    outfile = outdir / f"graphcast_10panel_wide_{init:%Y%m%d}{suffix}.gif"
     if outfile.exists() and outfile.stat().st_size:
         print(f"SKIP {outfile}", flush=True)
         return
@@ -136,43 +166,62 @@ def plot_one(cfg, index, *, max_frames=None):
         reference = setup_reference(stack, cfg, valid_times, lat, lon, stride)
         a_t = np.ma.masked_invalid(t2m)
         a_p = np.ma.masked_invalid(tp06)
-        temp_low, temp_high = np.nanpercentile(t2m, [1, 99.9]) - 273.15
-        precip_high = max(1.0, float(np.nanpercentile(tp06, 99.9))*1000)
+        temp_low = float(cfg["plot"]["t2m_min_c"])
+        temp_high = float(cfg["plot"]["t2m_max_c"])
+        precip_high = float(cfg["plot"]["pr_max_mm"])
+        if not temp_low < temp_high or precip_high <= 0:
+            raise ValueError("Invalid fixed colour limits in fig/config.yaml")
         temp_cmap = plt.get_cmap("RdYlBu_r").copy()
         precip_cmap = plt.get_cmap("turbo").copy()
-        temp_cmap.set_bad("#eeeeee")
-        precip_cmap.set_bad("#eeeeee")
-        fig, axes = plt.subplots(5, 2, figsize=(13.5, 14.5))
-        fig.subplots_adjust(left=.04, right=.98, top=.94, bottom=.08, wspace=.09, hspace=.23)
+        temp_cmap.set_bad((0, 0, 0, 0))
+        precip_cmap.set_bad((0, 0, 0, 0))
+        fig, axes = plt.subplots(2, 5, figsize=(19.2, 10.8))
+        fig.subplots_adjust(left=.025, right=.985, top=.89, bottom=.145,
+                            wspace=.07, hspace=.18)
         origin = "upper" if lat[0] > lat[-1] else "lower"
         extent = (float(np.min(lon)), float(np.max(lon)), float(np.min(lat)), float(np.max(lat)))
         titles = [
-            ("GraphCast T2m", "GraphCast PR (6h)"),
-            (f"T2m >= P90 ({q_t[0]-273.15:.1f} °C)", f"PR >= P90 ({q_p[0]*1000:.1f} mm)"),
-            (f"T2m >= P95 ({q_t[1]-273.15:.1f} °C)", f"PR >= P95 ({q_p[1]*1000:.1f} mm)"),
-            (f"T2m >= P99 ({q_t[2]-273.15:.1f} °C)", f"PR >= P99 ({q_p[2]*1000:.1f} mm)"),
-            ("ERA5 T2m reference", "ERA5 PR (6h) reference"),
+            ("GraphCast T2m",
+             f"T2m ≥ P90 ({q_t[0]-273.15:.1f} °C)",
+             f"T2m ≥ P95 ({q_t[1]-273.15:.1f} °C)",
+             f"T2m ≥ P99 ({q_t[2]-273.15:.1f} °C)",
+             "ERA5 T2m reference"),
+            ("GraphCast PR (6h)",
+             f"PR ≥ P90 ({q_p[0]*1000:.1f} mm)",
+             f"PR ≥ P95 ({q_p[1]*1000:.1f} mm)",
+             f"PR ≥ P99 ({q_p[2]*1000:.1f} mm)",
+             "ERA5 PR (6h) reference"),
         ]
+        coastlines = coastline_segments(lon)
         images = []
-        for row in range(5):
+        for row in range(2):
             pair = []
-            for col in range(2):
+            for col in range(5):
                 ax = axes[row, col]
+                ax.set_facecolor("#f1f3f5")
                 ax.set_title(titles[row][col], fontsize=10)
                 ax.set_xticks([])
                 ax.set_yticks([])
                 im = ax.imshow(np.ma.masked_all(t2m.shape[1:]), origin=origin,
                     extent=extent, interpolation="nearest",
-                    cmap=temp_cmap if col == 0 else precip_cmap,
-                    vmin=float(temp_low) if col == 0 else 0.0,
-                    vmax=float(temp_high) if col == 0 else precip_high,
-                    aspect="auto")
+                    cmap=temp_cmap if row == 0 else precip_cmap,
+                    vmin=temp_low if row == 0 else 0.0,
+                    vmax=temp_high if row == 0 else precip_high,
+                    aspect="auto", zorder=1)
+                # Draw fixed geographic context under sparse extreme maps.
+                # Coastline is on top of the raster to stay visible.
+                if col in (1, 2, 3):
+                    ax.add_collection(LineCollection(
+                        coastlines, colors="#697783", linewidths=.35,
+                        alpha=.82, zorder=2))
                 pair.append(im)
             images.append(pair)
-        cax_t = fig.add_axes([.13, .045, .31, .014])
-        cax_p = fig.add_axes([.59, .045, .31, .014])
-        fig.colorbar(images[0][0], cax=cax_t, orientation="horizontal").set_label("T2m (°C)")
-        fig.colorbar(images[0][1], cax=cax_p, orientation="horizontal").set_label("PR (mm / 6h)")
+        cax_t = fig.add_axes([.10, .064, .34, .020])
+        cax_p = fig.add_axes([.57, .064, .34, .020])
+        fig.colorbar(images[0][0], cax=cax_t, orientation="horizontal",
+                     extend="both").set_label("T2m (°C)")
+        fig.colorbar(images[1][0], cax=cax_p, orientation="horizontal",
+                     extend="max").set_label("PR (mm / 6h)")
         n = len(valid_times)
 
         def update(k):
@@ -187,12 +236,14 @@ def plot_one(cfg, index, *, max_frames=None):
             temp = np.asarray(a_t[k]) - 273.15
             precip = np.asarray(a_p[k]) * 1000
             images[0][0].set_data(np.ma.masked_invalid(temp))
-            images[0][1].set_data(np.ma.masked_invalid(precip))
+            images[1][0].set_data(np.ma.masked_invalid(precip))
             for i, (t_cut, p_cut) in enumerate(zip(q_t, q_p), start=1):
-                images[i][0].set_data(np.ma.masked_where(~np.isfinite(t2m[k]) | (t2m[k] < t_cut), temp))
-                images[i][1].set_data(np.ma.masked_where(~np.isfinite(tp06[k]) | (tp06[k] < p_cut), precip))
-            images[4][0].set_data(np.ma.masked_invalid(observed_t))
-            images[4][1].set_data(np.ma.masked_invalid(observed_p))
+                images[0][i].set_data(np.ma.masked_where(
+                    ~np.isfinite(t2m[k]) | (t2m[k] < t_cut), temp))
+                images[1][i].set_data(np.ma.masked_where(
+                    ~np.isfinite(tp06[k]) | (tp06[k] <= 0) | (tp06[k] < p_cut), precip))
+            images[0][4].set_data(np.ma.masked_invalid(observed_t))
+            images[1][4].set_data(np.ma.masked_invalid(observed_p))
             fig.suptitle(f"GraphCast vs ERA5 | Init {init:%Y-%m-%d} | Lead {k*hours}h ({k*hours/24:.2f} d) | Valid {valid:%Y-%m-%d %H} UTC",
                          fontsize=12, weight="bold")
             if k % 24 == 0 or k == n-1:
