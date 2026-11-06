@@ -154,7 +154,7 @@ def plot_one(cfg, index, *, max_frames=None):
     outdir = cfg["output"]["root"]
     outdir.mkdir(parents=True, exist_ok=True)
     suffix = "" if nframes == steps else f"_preview_{nframes}"
-    outfile = outdir / f"graphcast_10panel_compact_{init:%Y%m%d}{suffix}.gif"
+    outfile = outdir / f"graphcast_10panel_compact_v2_{init:%Y%m%d}{suffix}.gif"
     if outfile.exists() and outfile.stat().st_size:
         print(f"SKIP {outfile}", flush=True)
         return
@@ -216,8 +216,9 @@ def plot_one(cfg, index, *, max_frames=None):
                         alpha=.82, zorder=2))
                 pair.append(im)
             images.append(pair)
-        cax_t = fig.add_axes([.10, .064, .34, .020])
-        cax_p = fig.add_axes([.57, .064, .34, .020])
+        # Reserve room for colorbar tick labels and unit labels inside the canvas.
+        cax_t = fig.add_axes([.10, .125, .34, .020])
+        cax_p = fig.add_axes([.57, .125, .34, .020])
         fig.colorbar(images[0][0], cax=cax_t, orientation="horizontal",
                      extend="both").set_label("T2m (°C)")
         fig.colorbar(images[1][0], cax=cax_p, orientation="horizontal",
