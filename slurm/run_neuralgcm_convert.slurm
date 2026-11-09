@@ -47,7 +47,7 @@ srun --cpu-bind=none --ntasks=1 --cpus-per-task="$SLURM_CPUS_PER_TASK" \
   pixi run -e postprocess --locked -- bash scripts/pixi_exec.sh \
     python -u scripts/convert_neuralgcm_netcdf.py \
       --producer-job-id "${PRODUCER_JOB_ID:-}" \
-      --workers 12 --compression-level 2 "${LIMIT_ARGS[@]}"
+      --workers 12 --compression-level 2 --delete-verified-zarr "${LIMIT_ARGS[@]}"
 '
 status=$?
 set -e
