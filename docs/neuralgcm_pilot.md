@@ -30,3 +30,25 @@ The preflight only validates static settings. It does **not** test NeuralGCM pac
 - [Checkpoint descriptions](https://github.com/neuralgcm/neuralgcm/blob/main/docs/checkpoints.md)
 - [Forecasting quick start](https://neuralgcm.readthedocs.io/en/latest/inference_demo.html)
 - [NeuralGCM installation](https://neuralgcm.readthedocs.io/en/latest/installation.html)
+
+
+## Stage 1: isolated GPU smoke runner (unverified on Sapelo2)
+
+The new `scripts/run_neuralgcm_pilot.py` follows the official NeuralGCM ERA5 forecast example: load the 1.4° stochastic checkpoint, open the public ARCO ERA5 Zarr, apply the official **24-hour temporal shift to forcing variables**, select a single initialization, conservatively regrid to the model Gaussian grid, fill missing values, encode with an explicit RNG key, and run an initial **6-hour** GPU forecast. A one-time forcing slice means **persistent initial SST and sea ice** throughout the rollout.
+
+**Important:** This is implementation code, not evidence of successful data access, regridding, or inference. The default command is limited to a six-hour pilot, not 42 days. Outputs are new Zarr directories restricted to `/scratch/$USER/weather-ai/neuralgcm-pilot/`. Existing models and their forecast data are not modified.
+
+From Sapelo2 after the NeuralGCM Pixi environment has been set up:
+
+```bash
+pixi run -e neuralgcm python -m unittest discover -s tests -p 'test_neuralgcm_pilot.py' -v
+pixi run -e neuralgcm python scripts/run_neuralgcm_pilot.py --forecast-hours 6
+```
+
+The second command **does perform** remote ERA5 reads, downloads the checkpoint, uses the GPU, and writes a Zarr output. It may fail if remote Zarr APIs, dependencies, or checkpoint requirements differ from the official example. Inspect diagnostics and the resulting dataset before increasing the horizon.
+
+For 42 days, the forecast lead times are 6, 12, ..., 1008 hours (**168 forecast outputs**); lead zero must be produced separately if a 169-time-point dataset is required. We use `start_with_input=False` to avoid the off-by-one final state advancement inherent in requesting 169 steps with `start_with_input=True`.
+
+**Scientific limitation:** This particular checkpoint is not the precipitation-specific NeuralGCM checkpoint. Do not assume its decoded outputs include precipitation or that its raw outputs match GraphCast/Pangu/SFNO variable inventories. Its wind and moisture fields must be checked before IVT/AR postprocessing. Static SST/sea-ice persistence is a deliberate, potentially impactful 42-day forcing assumption.
+
+Sources: [official forecast quick start](https://neuralgcm.readthedocs.io/en/latest/inference_demo.html), [trained model discussion](https://neuralgcm.readthedocs.io/en/latest/deepdive_into_models.html), and [data preparation](https://neuralgcm.readthedocs.io/en/latest/data_preparation.html).
