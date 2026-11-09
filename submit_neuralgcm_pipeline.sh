@@ -65,7 +65,7 @@ printf 'Forecast array:       %s (%s)\n' "$producer_job" "$ARRAY"
 printf 'Per-worker limit:     %s\n' "${LIMIT:-none}"
 printf 'Log directory:        %s\n' "$LOG_DIR"
 printf 'Monitor: squeue -j %s\n' "$producer_job"
-printf 'Per-case logs: /scratch/%s/weather-ai/neuralgcm-operational/logs/\n' "$USER"
+printf 'Per-case logs: /scratch/%s/weather-ai/%s/logs/\n' "$USER" "$OUTPUT_DIR"
 
 converter_raw="$(
   sbatch --parsable \
