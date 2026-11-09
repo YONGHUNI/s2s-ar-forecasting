@@ -65,7 +65,7 @@ converter_raw="$(
   sbatch --parsable \
     --output="$LOG_DIR/neuralgcm-convert-%j.log" \
     --error="$LOG_DIR/neuralgcm-convert-%j.log" \
-    --export="ALL,PRODUCER_JOB_ID=$producer_job" \
+    --export="ALL,PRODUCER_JOB_ID=$producer_job,NGCM_CONVERT_LIMIT=$LIMIT" \
     slurm/run_neuralgcm_convert.slurm
 )"
 converter_job="${converter_raw%%;*}"
