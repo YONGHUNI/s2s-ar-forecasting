@@ -91,6 +91,18 @@ def convert_one(zarr_path: str, nc_path: str, date_string: str, level: int) -> t
                 for name in ds.data_vars:
                     if nc[name].dims != ds[name].dims or nc[name].shape != ds[name].shape:
                         raise ValueError(f"Shape mismatch: {name}")
+                    # Compare representative points across start/middle/end leads,
+                    # vertical levels and locations. This is a smoke check, not
+                    # a full-field checksum.
+                    picks = {
+                        dim: sorted({0, size // 2, size - 1})
+                        for dim, size in zip(ds[name].dims, ds[name].shape)
+                    }
+                    z_values = ds[name].isel(picks).values
+                    n_values = nc[name].isel(picks).values
+                    if not np.allclose(z_values, n_values, rtol=1e-6,
+                                       atol=1e-8, equal_nan=True):
+                        raise ValueError(f"Zarr/NetCDF sampled values differ: {name}")
             if destination.exists():
                 raise FileExistsError(destination)
             partial.rename(destination)
