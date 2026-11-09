@@ -6,10 +6,6 @@ UGA-side AI/data-driven modeling workflow for the NASA ROSES-2025 Water Resource
 
 The repository includes GraphCast Operational, Pangu6, and SFNO forecast pipelines on UGA GACRC Sapelo2. NeuralGCM is planned but is not implemented in this branch.
 
-## NeuralGCM pilot (in preparation)
-
-A separate **NeuralGCM v1 1.4° stochastic** single-initialization pilot is specified in [`config/neuralgcm_pilot.json`](config/neuralgcm_pilot.json), with read-only validation in [`scripts/neuralgcm_preflight.py`](scripts/neuralgcm_preflight.py). See the [pilot design and limitations](docs/neuralgcm_pilot.md). **This is not yet an executable forecast or a completed GPU test.** Existing model inference and output trees are unaffected.
-
 ## Production status (verified inventory, 2026-11-09)
 
 | Model | Experiment | Available outputs | QC evidence |
