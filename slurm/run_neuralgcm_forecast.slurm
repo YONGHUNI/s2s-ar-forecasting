@@ -7,7 +7,7 @@
 #SBATCH --gres=gpu:L40S:1
 #SBATCH --mem=64G
 #SBATCH --time=08:00:00
-#SBATCH --array=0-19%2
+#SBATCH --array=0-19%4
 #SBATCH --requeue
 #SBATCH --output=neuralgcm-forecast-%A_%a.out
 #SBATCH --error=neuralgcm-forecast-%A_%a.err
