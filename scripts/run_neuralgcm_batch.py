@@ -94,6 +94,7 @@ def final_netcdf_verified(path: Path, day: date) -> bool:
                 and metadata.get("initialization") == day.isoformat()
                 and metadata.get("seed") == SEED
                 and metadata.get("size_bytes") == path.stat().st_size
+                and metadata.get("lead_count") == len(expected_leads())
                 and path.stat().st_size > 0)
     except (OSError, ValueError, TypeError):
         return False
