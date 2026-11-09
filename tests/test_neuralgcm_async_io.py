@@ -39,6 +39,12 @@ class NeuralGCMAsyncIOTests(unittest.TestCase):
                 writer.finish()
             finally:
                 writer.close()
+            self.assertEqual(len(writer.write_seconds), 3)
+            self.assertTrue(all(seconds >= 0 for seconds in writer.write_seconds))
+            self.assertGreaterEqual(writer.backpressure_seconds, 0)
+            self.assertGreaterEqual(writer.drain_seconds, 0)
+            self.assertGreaterEqual(writer.validation_seconds, 0)
+            self.assertGreaterEqual(writer.publication_seconds, 0)
             self.assertTrue(target.is_dir())
             self.assertFalse(Path(str(target) + ".partial.zarr").exists())
             with xr.open_zarr(target, consolidated=False, chunks=None) as ds:
