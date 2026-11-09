@@ -52,3 +52,21 @@ For 42 days, the forecast lead times are 6, 12, ..., 1008 hours (**168 forecast 
 **Scientific limitation:** This particular checkpoint is not the precipitation-specific NeuralGCM checkpoint. Do not assume its decoded outputs include precipitation or that its raw outputs match GraphCast/Pangu/SFNO variable inventories. Its wind and moisture fields must be checked before IVT/AR postprocessing. Static SST/sea-ice persistence is a deliberate, potentially impactful 42-day forcing assumption.
 
 Sources: [official forecast quick start](https://neuralgcm.readthedocs.io/en/latest/inference_demo.html), [trained model discussion](https://neuralgcm.readthedocs.io/en/latest/deepdive_into_models.html), and [data preparation](https://neuralgcm.readthedocs.io/en/latest/data_preparation.html).
+
+## Stage 1b: asynchronous Zarr writing (awaiting GPU verification)
+
+NeuralGCM now uses `scripts/neuralgcm_async_io.py`, a NeuralGCM-specific writer rather than the Earth2Studio `AsyncZarrBackend`. The model is unrolled in bounded chunks (default: 8 saved steps = 48 hours), and each chunk is transferred to host and submitted to a **single background I/O worker**. This overlaps GPU inference for the next chunk with serialized Zarr append operations for the previous chunk. `--max-pending-writes 2` bounds outstanding writes and host memory. This is real asynchronous, overlapped I/O but **not 4-way parallel writes**: a single writer avoids conflicting concurrent appends to the same Zarr store.
+
+The writer uses `<destination>.partial.zarr`; it waits for all writes, reopens the store to check expected time length and variables, and renames it to the requested final destination only after success. A failure does not publish a completed output. Partial stores are deliberately retained for diagnosis, and existing output/partial paths block accidental overwrites.
+
+To test without rerunning the earlier completed 6-hour pilot:
+
+```bash
+pixi run -e neuralgcm python -m unittest discover -s tests -p 'test_neuralgcm_async_io.py' -v
+pixi run -e neuralgcm python -m unittest discover -s tests -p 'test_neuralgcm_pilot.py' -v
+pixi run -e neuralgcm python scripts/run_neuralgcm_pilot.py \
+  --forecast-hours 12 --write-chunk-steps 1 \
+  --output /scratch/$USER/weather-ai/neuralgcm-pilot/neuralgcm_20241001_async_12h.zarr
+```
+
+This 12-hour smoke test forces **two separate writes** (6h then 12h), so it exercises the asynchronous append and final publication. It downloads ERA5 and the official checkpoint and runs on GPU. The prior 6-hour Zarr remains untouched. Full 42-day results have **not** been produced or benchmarked.
