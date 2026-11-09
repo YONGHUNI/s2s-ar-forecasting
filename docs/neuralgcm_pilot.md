@@ -146,3 +146,18 @@ sbatch --array=0-19%2 --export=ALL,NGCM_LIMIT= slurm/run_neuralgcm_forecast.slur
 The explicit blank `NGCM_LIMIT` prevents the canary limit from propagating to full production. Already validated cases are skipped.
 
 **Difference from previous three-model pipeline:** this phase intentionally performs only NeuralGCM inference and stores native full 37-level output in Zarr. The GraphCast/Pangu/SFNO pipeline also has separate Zarr-to-NetCDF conversion and model-specific variable selection. No claim is made that NeuralGCM NetCDF conversion or postprocessing is already in place. The output is ~5.5 GiB/case, about 3.3 TiB for 607 cases, so check user and group storage policy. For consistency, a separate NeuralGCM converter can be built and independently verified after canary before full launch.
+
+
+## Stage 2 submission wrapper (same entrypoint style as legacy models)
+
+Use `submit_neuralgcm_pipeline.sh` from the repository root, **on the login node**. The wrapper creates a timestamped `logs/<run-id>/` directory, submits the Slurm array with `sbatch --parsable`, and prints the job ID and monitor command. Unlike GraphCast/Pangu/SFNO's submission wrappers, **no CPU NetCDF converter is launched**, because NeuralGCM's current scope is inference-only Zarr outputs.
+
+```bash
+# Optional Slurm canary (one initialization on a compute node):
+NGCM_MODE=pilot bash submit_neuralgcm_pipeline.sh
+
+# Full 607-case inference, 20 shards, up to 4 L40S concurrently:
+NGCM_MODE=production NGCM_PRODUCTION_CONFIRMED=1 bash submit_neuralgcm_pipeline.sh
+```
+
+The one-initialization batch canary was also successfully run on an allocated GPU node, and rerunning correctly skipped the validated `2015-10-02` output. The login-node `sbatch` wrapper is new and has not yet been verified through a scheduler submission. The production mode requires explicit confirmation to prevent accidental large allocations.
