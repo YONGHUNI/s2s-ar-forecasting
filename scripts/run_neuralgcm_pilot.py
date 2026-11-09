@@ -25,10 +25,11 @@ def forecast_schedule(hours: int, interval: int = 6) -> list[int]:
 
 def validate_output_path(path: Path, username: str) -> Path:
     """Do not overwrite any pre-existing forecast output."""
-    root = Path(f"/scratch/{username}/weather-ai/neuralgcm-pilot").resolve()
+    roots = [Path(f"/scratch/{username}/weather-ai/{name}").resolve()
+             for name in ("neuralgcm-pilot", "neuralgcm-operational")]
     resolved = path.expanduser().resolve()
-    if root not in resolved.parents:
-        raise ValueError(f"output must be a child of {root}")
+    if not any(root in resolved.parents for root in roots):
+        raise ValueError(f"output must be under one of {roots}")
     if resolved.exists():
         raise FileExistsError(f"output already exists: {resolved}")
     return resolved
