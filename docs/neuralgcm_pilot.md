@@ -212,3 +212,28 @@ NGCM_CLEANUP_MODE=delete NGCM_CLEANUP_CONFIRMED=1 \
 The audit uses the postprocess environment to reopen and check each completed NetCDF. It never removes data or writes validation receipts. The deletion job validates again before deleting each exact matching Zarr, and writes receipts so restarting the GPU pipeline will skip already completed NC forecasts. The two jobs should not overlap. Only finalized operational Zarr with the exact 607 expected date names are targeted; pilot outputs under `neuralgcm-pilot` are not targeted.
 
 Note: the existing NC validation is metadata and shape checks, plus representative Zarr-to-NetCDF sample values performed at initial conversion. It is **not** a full-array checksum and does not establish physical/scientific quality. Keep raw Zarr if independent full-array checks or another analysis using Zarr is planned.
+
+
+## 169-output rerun: decoded lead zero (November 9, 2026)
+
+A separate 169-output rerun now exists **without modifying** the previous 168-output production dataset. The legacy 168-output files remain under `/scratch/$USER/weather-ai/neuralgcm-operational`. The new rerun uses `/scratch/$USER/weather-ai/neuralgcm-operational-lead0`.
+
+NeuralGCM's official legacy `PressureLevelModel.unroll` documents that `start_with_input=True` decodes the encoded initial model state at time zero, then returns outputs at time `[0, ..., (steps-1)*timedelta]`, and advances the returned model state by `steps*timedelta`. Calling this flag consistently on **every** chunk (including later chunks) produces contiguous `[0, 6, ..., 1008]` hour coordinates even when each chunk contains eight outputs. This is a **decoded NeuralGCM initialization**, not an untouched ERA5 analysis field. The final one-output chunk advances the *discarded* returned state to 1014h after writing 1008h; the last forecast output is still 1008h.
+
+Launch a single-case, 2-job integration pilot from the login node after pulling the latest branch:
+
+```bash
+NGCM_MODE=pilot bash submit_neuralgcm_pipeline.sh
+```
+
+This launches **one** L40S GPU producer and **one** 12-worker-capable CPU converter; pilot converter scope is explicitly limited to the same first initialization date. The CPU converter writes a 169-time NetCDF and validates output and sample values, creates a validation receipt, then automatically deletes the matching temporary Zarr. The previous 168-lead operational data and its cleanup audit are unaffected.
+
+Verify pilot producer and converter both finish with exit code 0, the pilot NetCDF's lead coordinate is 0..1008 (169), the receipt exists, and the pilot Zarr is gone. Compare the lead +6/+48/+1008 forecasts with matching old outputs before committing to the full rerun; the outputs should be checked numerically, not assumed identical because stochastic/JAX execution is involved.
+
+After a successful pilot, use:
+
+```bash
+NGCM_MODE=production NGCM_PRODUCTION_CONFIRMED=1 bash submit_neuralgcm_pipeline.sh
+```
+
+The submit wrapper sends both the GPU array (`0-19%4`) and CPU converter concurrently. It is **pilot-first by default** to avoid accidental full reruns. The converter auto-deletes each matching Zarr *only* after validated NetCDF publication. The 168-lead historical output is retained as a backup and comparison baseline. A separate retained export or archival copy should precede deleting the older dataset.
