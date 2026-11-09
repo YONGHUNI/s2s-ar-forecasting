@@ -68,6 +68,25 @@ def valid_published_zarr(path: Path) -> bool:
         return np.array_equal(ds.time.values, np.arange(6, 1009, 6))
 
 
+def final_netcdf_verified(path: Path, day: date) -> bool:
+    """Trust only final NetCDFs accompanied by a converter validation receipt.
+
+    Avoid importing netCDF4 on the GPU environment, where it is not installed.
+    """
+    receipt = Path(str(path) + ".verified.json")
+    if not path.is_file() or not receipt.is_file():
+        return False
+    try:
+        metadata = json.loads(receipt.read_text(encoding="utf-8"))
+        return (metadata.get("schema") == "neuralgcm-netcdf-v1"
+                and metadata.get("initialization") == day.isoformat()
+                and metadata.get("seed") == SEED
+                and metadata.get("size_bytes") == path.stat().st_size
+                and path.stat().st_size > 0)
+    except (OSError, ValueError, TypeError):
+        return False
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--worker", type=int, required=True)
@@ -111,8 +130,7 @@ def main() -> int:
         # Match legacy producers: a validated final NetCDF is the terminal
         # artifact, even when its transient Zarr was already reclaimed.
         if final_nc.exists():
-            from convert_neuralgcm_netcdf import valid_nc
-            if valid_nc(final_nc, day.isoformat()):
+            if final_netcdf_verified(final_nc, day):
                 print(f"[{idx}/{len(mine)}] SKIP validated NetCDF {day}", flush=True)
                 continue
             print(f"INVALID existing NetCDF (no overwrite): {final_nc}", flush=True)
