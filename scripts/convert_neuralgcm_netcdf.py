@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Convert published NeuralGCM 42-day Zarr forecasts to independent NetCDF4 files.
+"""Convert NeuralGCM Zarr forecasts to validated NetCDF4 files on CPU nodes.
 
-This script intentionally never deletes a Zarr source. Run on a CPU Slurm job.
+Optional post-validation Zarr cleanup matches the older model pipelines.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import time
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
@@ -158,6 +159,51 @@ def valid_nc(path: Path, date_string: str) -> bool:
         return False
 
 
+def validation_receipt(path: Path, date_string: str) -> Path:
+    """Atomic receipt for GPU producer restart after the Zarr is removed."""
+    return Path(str(path) + ".verified.json")
+
+
+def ensure_verified_receipt(path: Path, date_string: str) -> None:
+    """Only the converter, with netCDF4 installed, may attest completed NC."""
+    if not valid_nc(path, date_string):
+        raise ValueError(f"NetCDF validation failed: {path}")
+    target = validation_receipt(path, date_string)
+    content = {
+        "schema": "neuralgcm-netcdf-v1",
+        "initialization": date_string,
+        "seed": SEED,
+        "size_bytes": path.stat().st_size,
+    }
+    temporary = Path(str(target) + ".partial")
+    if temporary.exists():
+        raise FileExistsError(f"Incomplete validation receipt: {temporary}")
+    temporary.write_text(json.dumps(content, sort_keys=True) + "\\n", encoding="utf-8")
+    temporary.replace(target)
+
+
+def delete_verified_zarr(source: Path, final: Path, date_string: str,
+                         *, root: Path, dry_run: bool = False) -> bool:
+    """Reclaim only an exact forecast Zarr whose matching NetCDF is verified."""
+    if not source.exists():
+        return False
+    if source.is_symlink() or not source.is_dir():
+        raise ValueError(f"Zarr source must be a real directory: {source}")
+    if source.parent.resolve() != root.resolve():
+        raise ValueError(f"Zarr source outside operational directory: {source}")
+    if source.name != f"neuralgcm_{date_string.replace('-', '')}_42day_seed{SEED}.zarr":
+        raise ValueError(f"Unexpected Zarr source name: {source.name}")
+    if not valid_nc(final, date_string):
+        raise ValueError(f"Cannot delete Zarr without validated NetCDF: {final}")
+    ensure_verified_receipt(final, date_string)
+    if dry_run:
+        stamp(f"DRY-RUN verified Zarr deletion: {source}")
+    else:
+        shutil.rmtree(source)
+        stamp(f"Deleted validated Zarr: {source}")
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--producer-job-id", default=os.getenv("PRODUCER_JOB_ID"))
@@ -167,6 +213,12 @@ def main() -> int:
     parser.add_argument("--requeue-after-seconds", type=int, default=int(os.getenv(
         "CONVERTER_REQUEUE_AFTER_SECONDS", "165600")))
     parser.add_argument("--limit", type=int, help="Optional first N dates for a pilot")
+    parser.add_argument("--delete-verified-zarr", action="store_true",
+                        help="After verified NetCDF publication, remove corresponding Zarr")
+    parser.add_argument("--cleanup-only", action="store_true",
+                        help="Audit and optionally remove completed Zarr without converting")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="With --cleanup-only, print eligible deletions only")
     args = parser.parse_args()
     if args.workers < 1 or args.poll_seconds < 1 or not 0 <= args.compression_level <= 9:
         parser.error("Invalid worker/poll/compression configuration")
@@ -184,6 +236,33 @@ def main() -> int:
               root / "netcdf" / f"neuralgcm_{day:%Y%m%d}_42day_seed{SEED}.nc")
              for day in dates]
     (root / "netcdf").mkdir(parents=True, exist_ok=True)
+    if args.dry_run and not args.cleanup_only:
+        parser.error("--dry-run requires --cleanup-only")
+    if args.cleanup_only:
+        eligible = 0
+        blocked = 0
+        for day, source, dest in items:
+            if not source.exists():
+                continue
+            try:
+                if not valid_nc(dest, day):
+                    blocked += 1
+                    stamp(f"BLOCKED (invalid or absent NetCDF): {day}")
+                    continue
+                ensure_verified_receipt(dest, day)
+                if args.delete_verified_zarr:
+                    delete_verified_zarr(source, dest, day, root=root,
+                                         dry_run=args.dry_run)
+                else:
+                    stamp(f"ELIGIBLE (no deletion requested): {source}")
+                eligible += 1
+            except Exception as exc:
+                blocked += 1
+                stamp(f"BLOCKED {day}: {exc!r}")
+        stamp(f"Cleanup audit: eligible={eligible}, blocked={blocked}, "
+              f"delete={args.delete_verified_zarr}, dry_run={args.dry_run}")
+        return 1 if blocked else 0
+
     active = {}
     started = time.monotonic()
     failed = set()
@@ -199,6 +278,9 @@ def main() -> int:
                     size, seconds = future.result()
                     if not valid_nc(dest, date_str):
                         raise ValueError(f"Post-publication validation failed: {dest}")
+                    ensure_verified_receipt(dest, date_str)
+                    if args.delete_verified_zarr:
+                        delete_verified_zarr(source, dest, date_str, root=root)
                     verified.add(date_str)
                     stamp(f"Published {dest.name}: {size/1024**3:.2f} GiB in {seconds:.1f}s")
                 except Exception as exc:
@@ -210,7 +292,14 @@ def main() -> int:
             for day, _, dest in items:
                 if day not in verified and day not in failed and dest.exists():
                     if valid_nc(dest, day):
-                        verified.add(day)
+                        try:
+                            ensure_verified_receipt(dest, day)
+                            if args.delete_verified_zarr and source.is_dir():
+                                delete_verified_zarr(source, dest, day, root=root)
+                            verified.add(day)
+                        except Exception as exc:
+                            failed.add(day)
+                            stamp(f"FAILED validation receipt or cleanup {day}: {exc!r}")
                     else:
                         failed.add(day)
                         stamp(f"INVALID existing NetCDF (not overwritten): {dest}")
