@@ -6,6 +6,7 @@ This script intentionally never deletes a Zarr source. Run on a CPU Slurm job.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import time
@@ -20,6 +21,36 @@ from run_neuralgcm_batch import SEED, initialization_dates, output_path
 REQUEUE_EXIT_CODE = 75
 REQUIRED = frozenset({"specific_humidity", "u_component_of_wind",
                        "v_component_of_wind", "temperature", "geopotential"})
+
+
+
+def netcdf_safe_attrs(attrs: dict) -> dict:
+    """Preserve valid CF metadata, encode structured attrs, omit null values.
+
+    NeuralGCM/Dinosaur Zarr metadata may contain None (e.g.
+    basis_as_jax_arrays), mappings and booleans, which NetCDF4 rejects.
+    This is metadata-only: numerical forecast arrays are unchanged.
+    """
+    result = {}
+    for key, value in attrs.items():
+        if value is None:
+            continue
+        if isinstance(value, (bool, np.bool_)):
+            result[key] = int(value)
+        elif isinstance(value, np.generic):
+            result[key] = value.item()
+        elif isinstance(value, (dict, list, tuple)):
+            result[key] = json.dumps(value, default=str, ensure_ascii=False)
+        elif isinstance(value, np.ndarray):
+            if value.dtype.kind in "biufSU":
+                result[key] = value.astype("int8") if value.dtype.kind == "b" else value
+            else:
+                result[key] = json.dumps(value.tolist(), default=str, ensure_ascii=False)
+        elif isinstance(value, (str, bytes, int, float)):
+            result[key] = value
+        else:
+            result[key] = str(value)
+    return result
 
 
 def stamp(message: str) -> None:
@@ -73,12 +104,15 @@ def convert_one(zarr_path: str, nc_path: str, date_string: str, level: int) -> t
         # Write coordinates/metadata once, then stream each variable separately.
         # Avoids making a ~5.5 GiB in-memory Dataset or large Dask task graph.
         coordinates = xr.Dataset(coords={
-            name: ds.coords[name] for name in ds.coords
-        }, attrs=dict(ds.attrs))
-        coordinates.to_netcdf(partial, mode="w", engine="netcdf4")
+            name: ds.coords[name].copy(deep=False) for name in ds.coords
+        }, attrs=netcdf_safe_attrs(ds.attrs))
+        for name in coordinates.coords:
+            coordinates.coords[name].attrs = netcdf_safe_attrs(ds.coords[name].attrs)
         try:
+            coordinates.to_netcdf(partial, mode="w", engine="netcdf4")
             for name in ds.data_vars:
                 variable = ds[name].variable.copy(deep=False)
+                variable.attrs = netcdf_safe_attrs(variable.attrs)
                 chunk = xr.Dataset({str(name): variable})
                 chunk.to_netcdf(partial, mode="a", engine="netcdf4", encoding={
                     str(name): {"zlib": level > 0, "complevel": level,
