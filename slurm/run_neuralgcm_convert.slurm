@@ -39,10 +39,15 @@ srun --cpu-bind=none --ntasks=1 --cpus-per-task="$SLURM_CPUS_PER_TASK" \
   "$NIX" develop --command bash -c '
   set -euo pipefail
   export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+  LIMIT_ARGS=()
+  if [[ -n "${NGCM_CONVERT_LIMIT:-}" ]]; then
+    [[ "$NGCM_CONVERT_LIMIT" =~ ^[1-9][0-9]*$ ]] || { echo "NGCM_CONVERT_LIMIT must be positive integer" >&2; exit 2; }
+    LIMIT_ARGS=(--limit "$NGCM_CONVERT_LIMIT")
+  fi
   pixi run -e postprocess --locked -- bash scripts/pixi_exec.sh \
     python -u scripts/convert_neuralgcm_netcdf.py \
       --producer-job-id "${PRODUCER_JOB_ID:-}" \
-      --workers 3 --compression-level 2
+      --workers 3 --compression-level 2 "${LIMIT_ARGS[@]}"
 '
 status=$?
 set -e
