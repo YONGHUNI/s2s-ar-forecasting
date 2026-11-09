@@ -17,7 +17,7 @@ from pathlib import Path
 
 import numpy as np
 
-from run_neuralgcm_batch import SEED, initialization_dates, output_path
+from run_neuralgcm_batch import SEED, initialization_dates, output_path, output_directory, expected_leads
 
 REQUEUE_EXIT_CODE = 75
 REQUIRED = frozenset({"specific_humidity", "u_component_of_wind",
@@ -75,14 +75,14 @@ def producer_active(job_id: str | None) -> bool | None:
 
 def validate_ds(ds, date_string: str) -> None:
     """Metadata-level checks without loading the full payload."""
-    if ds.sizes.get("time") != 168 or ds.sizes.get("level") != 37:
+    if ds.sizes.get("time") != len(expected_leads()) or ds.sizes.get("level") != 37:
         raise ValueError(f"Wrong time/level dimensions: {dict(ds.sizes)}")
     if not REQUIRED.issubset(ds.data_vars):
         raise ValueError(f"Missing atmospheric variables: {REQUIRED-set(ds.data_vars)}")
     if ds.attrs.get("seed") != SEED:
         raise ValueError("Unexpected RNG seed")
-    if not np.array_equal(ds.time.values, np.arange(6, 1009, 6)):
-        raise ValueError("Forecast lead times differ from +6..+1008 by 6 hours")
+    if not np.array_equal(ds.time.values, expected_leads()):
+        raise ValueError("Forecast lead times differ from expected sequence")
     if str(ds.attrs.get("initialization_utc", ""))[:10] != date_string:
         raise ValueError(f"Wrong initialization: expected {date_string}")
 
@@ -174,6 +174,7 @@ def ensure_verified_receipt(path: Path, date_string: str) -> None:
         "initialization": date_string,
         "seed": SEED,
         "size_bytes": path.stat().st_size,
+        "lead_count": len(expected_leads()),
     }
     temporary = Path(str(target) + ".partial")
     if temporary.exists():
@@ -227,7 +228,7 @@ def main() -> int:
     if not user:
         parser.error("USER is required")
 
-    root = Path(f"/scratch/{user}/weather-ai/neuralgcm-operational")
+    root = Path(f"/scratch/{user}/weather-ai/{output_directory()}")
     dates = initialization_dates()
     if args.limit is not None:
         if args.limit < 1:
