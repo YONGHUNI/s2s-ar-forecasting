@@ -26,7 +26,7 @@ def forecast_schedule(hours: int, interval: int = 6) -> list[int]:
 def validate_output_path(path: Path, username: str) -> Path:
     """Do not overwrite any pre-existing forecast output."""
     roots = [Path(f"/scratch/{username}/weather-ai/{name}").resolve()
-             for name in ("neuralgcm-pilot", "neuralgcm-operational")]
+             for name in ("neuralgcm-pilot", "neuralgcm-operational", "neuralgcm-operational-lead0")]
     resolved = path.expanduser().resolve()
     if not any(root in resolved.parents for root in roots):
         raise ValueError(f"output must be under one of {roots}")
@@ -41,6 +41,8 @@ def main() -> None:
     parser.add_argument("--forecast-hours", type=int, default=6)
     parser.add_argument("--output-every-hours", type=int, default=6)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--include-lead-zero", action="store_true",
+                        help="Use decoded model initial state for lead 0 (169 outputs for 42 days)")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--write-chunk-steps", type=int, default=8,
                         help="Number of 6-hour output steps per GPU/async-I/O chunk")
@@ -56,6 +58,8 @@ def main() -> None:
         print(f"[PROFILE] {name}: {elapsed:.3f} s", flush=True)
 
     leads = forecast_schedule(args.forecast_hours, args.output_every_hours)
+    if args.include_lead_zero:
+        leads.insert(0, 0)
     if args.write_chunk_steps < 1 or args.max_pending_writes < 1:
         parser.error("write-chunk-steps and max-pending-writes must be positive")
     if args.seed < 0:
@@ -150,7 +154,7 @@ def main() -> None:
             state, output_data = model.unroll(
                 state, temporal_forcings, steps=len(chunk_leads),
                 timedelta=np.timedelta64(args.output_every_hours, "h"),
-                start_with_input=False,
+                start_with_input=args.include_lead_zero,
             )
             # Synchronization and host transfer are explicit. The worker then
             # writes immutable host arrays while the next chunk is computed.
@@ -170,6 +174,8 @@ def main() -> None:
                 "forcing_policy": "initial_SST_and_sea_ice_persistence",
                 "input_dataset": ARCO,
                 "lead_time_units": "hours",
+                "lead_zero_source": ("decoded_model_initial_state" if args.include_lead_zero
+                                     else "not_saved"),
             })
             variable_names = list(predictions.data_vars)
             started = time.perf_counter()
@@ -206,6 +212,8 @@ def main() -> None:
     print(json.dumps({
         "output": str(published),
         "lead_hours": leads,
+        "lead_zero_source": ("decoded_model_initial_state" if args.include_lead_zero
+                             else "not_saved"),
         "variables": variable_names,
         "checkpoint_sha256": digest,
         "io_mode": "async_chunked_zarr",
