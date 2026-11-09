@@ -178,7 +178,7 @@ def ensure_verified_receipt(path: Path, date_string: str) -> None:
     temporary = Path(str(target) + ".partial")
     if temporary.exists():
         raise FileExistsError(f"Incomplete validation receipt: {temporary}")
-    temporary.write_text(json.dumps(content, sort_keys=True) + "\\n", encoding="utf-8")
+    temporary.write_text(json.dumps(content, sort_keys=True), encoding="utf-8")
     temporary.replace(target)
 
 
@@ -195,7 +195,8 @@ def delete_verified_zarr(source: Path, final: Path, date_string: str,
         raise ValueError(f"Unexpected Zarr source name: {source.name}")
     if not valid_nc(final, date_string):
         raise ValueError(f"Cannot delete Zarr without validated NetCDF: {final}")
-    ensure_verified_receipt(final, date_string)
+    if not dry_run:
+        ensure_verified_receipt(final, date_string)
     if dry_run:
         stamp(f"DRY-RUN verified Zarr deletion: {source}")
     else:
@@ -249,7 +250,8 @@ def main() -> int:
                     blocked += 1
                     stamp(f"BLOCKED (invalid or absent NetCDF): {day}")
                     continue
-                ensure_verified_receipt(dest, day)
+                if not args.dry_run:
+                    ensure_verified_receipt(dest, day)
                 if args.delete_verified_zarr:
                     delete_verified_zarr(source, dest, day, root=root,
                                          dry_run=args.dry_run)
@@ -289,7 +291,7 @@ def main() -> int:
 
             # Completed files are immutable. Cache validation instead of opening
             # hundreds of multi-GiB NetCDF files every polling interval.
-            for day, _, dest in items:
+            for day, source, dest in items:
                 if day not in verified and day not in failed and dest.exists():
                     if valid_nc(dest, day):
                         try:
