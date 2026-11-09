@@ -16,6 +16,7 @@ from earth2studio.io import AsyncZarrBackend, ZarrBackend
 
 
 from forecast_config import initialization_dates, load_forecast_config, output_basename
+from model_registry import get_model_type
 
 
 def log(msg="", *, producer=None):
@@ -199,10 +200,7 @@ def main():
     )
 
     t0 = time.perf_counter()
-    if cfg.model_name == "Pangu6":
-        from earth2studio.models.px import Pangu6 as model_type
-    else:
-        from earth2studio.models.px import GraphCastOperational as model_type
+    model_type = get_model_type(cfg.model_name)
     pkg = model_type.load_default_package()
     model = model_type.load_model(pkg)
     data = ARCO()
