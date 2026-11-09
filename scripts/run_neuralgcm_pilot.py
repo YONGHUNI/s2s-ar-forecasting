@@ -53,6 +53,7 @@ def main() -> None:
         elapsed = time.perf_counter() - started
         timings[name] = round(elapsed, 4)
         print(f"[PROFILE] {name}: {elapsed:.3f} s", flush=True)
+
     leads = forecast_schedule(args.forecast_hours, args.output_every_hours)
     if args.write_chunk_steps < 1 or args.max_pending_writes < 1:
         parser.error("write-chunk-steps and max-pending-writes must be positive")
@@ -77,9 +78,10 @@ def main() -> None:
     import xarray as xr
     from dinosaur import horizontal_interpolation, spherical_harmonic, xarray_utils
 
+    devices = jax.devices()
     stage("imports_and_jax_backend_setup", started)
-    if not any(d.platform == "gpu" for d in jax.devices()):
-        raise RuntimeError(f"CUDA JAX backend required; found {jax.devices()}")
+    if not any(d.platform == "gpu" for d in devices):
+        raise RuntimeError(f"CUDA JAX backend required; found {devices}")
     started = time.perf_counter()
     fs = gcsfs.GCSFileSystem(token="anon")
     with fs.open(CHECKPOINT, "rb") as stream:
