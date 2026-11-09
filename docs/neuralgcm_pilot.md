@@ -191,3 +191,24 @@ These are **Slurm submissions**. The login node performs no NetCDF encoding. Do 
 The converter validates sizes (`time=168`, `level=37`), required atmospheric variables, seed, initialization date, and 6-hour forecast schedule before publishing. This is metadata/shape validation, not full point-by-point numerical equivalence testing. The 2015-10-02 NetCDF pilot should be compared against its source Zarr before scaling to 607 cases.
 
 **Important**: If the producer job has completed and there are missing Zarr files, the converter stops rather than waiting indefinitely. To resume after failed GPU cases are repaired, submit another conversion job. The current startup quota remains the user's responsibility.
+
+
+## Stage 4: retain NetCDF only, matching legacy Zarr lifecycle
+
+The old GraphCast/Pangu/SFNO converter removes its staging Zarr and ready marker **after** successful NetCDF publication; their GPU producers skip pre-existing NetCDF outputs. NeuralGCM now matches this lifecycle for new runs.
+
+- `slurm/run_neuralgcm_convert.slurm` passes `--delete-verified-zarr`. After NetCDF publication and metadata/sample-value checks, the converter writes an atomic `<file>.nc.verified.json` receipt with initialization, seed and NetCDF size, then removes the matching finalized Zarr. Failed conversions and partial stores remain untouched.
+- `scripts/run_neuralgcm_batch.py` checks validated final NetCDF receipts **before** deciding whether to run the model. This does not require the GPU Pixi environment to have `netCDF4`. Thus deleting a validated Zarr does not cause that initialization to be forecast again.
+- The existing 607 files were converted before cleanup was enabled. The existing outputs are not deleted merely by pulling the new GitHub code. Use separate **CPU Slurm cleanup** via `submit_neuralgcm_cleanup.sh`. Run an audit first, then explicitly approve deletion:
+
+```bash
+# Login node, latest feature/neuralgcm-pilot branch
+bash submit_neuralgcm_cleanup.sh
+# Inspect audit log for eligible=607 blocked=0, then:
+NGCM_CLEANUP_MODE=delete NGCM_CLEANUP_CONFIRMED=1 \
+  bash submit_neuralgcm_cleanup.sh
+```
+
+The audit uses the postprocess environment to reopen and check each completed NetCDF. It never removes data or writes validation receipts. The deletion job validates again before deleting each exact matching Zarr, and writes receipts so restarting the GPU pipeline will skip already completed NC forecasts. The two jobs should not overlap. Only finalized operational Zarr with the exact 607 expected date names are targeted; pilot outputs under `neuralgcm-pilot` are not targeted.
+
+Note: the existing NC validation is metadata and shape checks, plus representative Zarr-to-NetCDF sample values performed at initial conversion. It is **not** a full-array checksum and does not establish physical/scientific quality. Keep raw Zarr if independent full-array checks or another analysis using Zarr is planned.
