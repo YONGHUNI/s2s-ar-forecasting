@@ -1,0 +1,14 @@
+{
+  "model": "NeuralGCM",
+  "checkpoint_uri": "gs://neuralgcm/models/v1/stochastic_1_4_deg.pkl",
+  "model_resolution_degrees": 1.4,
+  "initialization": "2024-10-01T00:00:00Z",
+  "forecast_days": 42,
+  "output_interval_hours": 6,
+  "include_initial_time": true,
+  "ensemble_seeds": [42],
+  "forcing_policy": "persist_initial_sst_and_sea_ice",
+  "input_source": "ARCO ERA5",
+  "output_root_template": "/scratch/{user}/weather-ai/neuralgcm-pilot",
+  "status": "preflight_only"
+}
