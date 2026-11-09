@@ -55,7 +55,7 @@ echo "SFNO converter uses postprocess Pixi environment."
 echo "Converter lifecycle restart_count=${SLURM_RESTART_COUNT:-0} requeue_after_seconds=$CONVERTER_REQUEUE_AFTER_SECONDS producer_job=${PRODUCER_JOB_ID:-untracked}"
 
 set +e
-srun --ntasks=1 --cpus-per-task="$SLURM_CPUS_PER_TASK" \
+srun --cpu-bind=none --ntasks=1 --cpus-per-task="$SLURM_CPUS_PER_TASK" \
      "$NIX" develop --command bash -c '
   set -euo pipefail
   export OMP_NUM_THREADS=1

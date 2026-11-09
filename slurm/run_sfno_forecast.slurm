@@ -58,7 +58,7 @@ if (( SLURM_ARRAY_TASK_ID < 0 || SLURM_ARRAY_TASK_ID >= NUM_SHARDS )); then
 fi
 export NUM_SHARDS
 
-srun --ntasks="$SLURM_NTASKS" \
+srun --cpu-bind=none --ntasks="$SLURM_NTASKS" \
      --cpus-per-task="$SLURM_CPUS_PER_TASK" \
      --gpus-per-task=1 --gpu-bind=single:1 \
      "$NIX" develop --command bash -c '
