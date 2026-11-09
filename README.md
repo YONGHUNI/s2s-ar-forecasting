@@ -4,11 +4,25 @@ UGA-side AI/data-driven modeling workflow for the NASA ROSES-2025 Water Resource
 
 > **Improving Subseasonal-to-Seasonal Forecasts of Atmospheric Rivers in the Western U.S. through Temporal Clustering Analysis, Orientation Prediction, and Hybrid Modeling Approaches**
 
-The repository supports GraphCast Operational and a Pangu6 pipeline for UGA GACRC Sapelo2. SFNO remains available as a Pixi feature for later evaluation.
+The repository includes GraphCast Operational, Pangu6, and SFNO forecast pipelines on UGA GACRC Sapelo2. NeuralGCM is planned but is not implemented in this branch.
 
-## Current GraphCast experiment
+## Production status (verified inventory, 2026-11-09)
 
-The production experiment is defined in `config/graphcast_operational_deterministic.yaml`.
+| Model | Experiment | Available outputs | QC evidence |
+|---|---|---:|---|
+| GraphCast Operational | 42 days, 6-hourly, Oct–Apr Tuesday/Friday initializations | 607 NetCDF files counted | File inventory only in this status check |
+| Pangu6 | Same 607 initialization schedule | 607 initializations reported completed | 30-file sampled QC; Zhiqi Yang reviewed outputs |
+| SFNO | Same 607 initialization schedule | 607 NetCDF files counted | 30-file sampled QC; pilot moisture diagnostic review |
+
+These are **file counts and recorded QC evidence**, not a claim that every NetCDF file passed exhaustive scientific validation. The output inventories were checked on Sapelo2 under `/scratch/$USER/weather-ai/` for GraphCast and SFNO. See [validation status](docs/validation/forecast_status.md) for scope and limits.
+
+**Operational GraphCast data location:** `/scratch/$USER/weather-ai/graphcast-operational/` (607 files counted). The `graphcast-operational-deterministic` directory was not present in the checked scratch location; references to deterministic configurations below describe an earlier configuration and must not be mistaken for the confirmed output directory.
+
+**Existing results should not be regenerated during code refactoring.** Separate historical instructions below document how the pipelines were configured and should be reviewed against current YAML and Slurm files before reuse.
+
+## GraphCast experiment configuration
+
+The repository contains multiple GraphCast configurations, including `config/graphcast_operational.yaml` and `config/graphcast_operational_deterministic.yaml`. Use the YAML corresponding to the intended experiment; the confirmed existing production inventory is under `graphcast-operational`.
 
 - Production period: 2015-10-01 through 2025-04-30
 - Seasonal filter: October through April only
@@ -234,7 +248,7 @@ The producer shard count is intentionally fixed at 20 so restart/resume runs pre
 
 `flake.lock` and `pixi.lock` are committed for reproducibility. Generated Pixi environments, Slurm logs, Zarr stores, NetCDF files, partial files, and ready markers are ignored.
 
-## Pangu6 pipeline (pilot validation before production)
+## Pangu6 pipeline (historical pilot-to-production instructions)
 
 Pangu follows the same architecture as GraphCast: one Nix flake and one root
 Pixi workspace with independent `-e pangu` and `-e graphcast` environments;
@@ -256,8 +270,8 @@ bash submit_pangu_pipeline.sh
 CONFIG=config/pangu_operational.yaml bash submit_pangu_pipeline.sh
 ```
 
-**Do not start the full 607-initialization run until the pilot producer and CPU
-converter both finish successfully.** The default pilot configuration stages
+**Historical pilot gate:** Do not start a new 607-initialization run until the pilot producer and CPU
+converter both finish successfully. The 607-initialization Pangu run has already been reported complete; do not rerun it solely because this historical guidance remains in the README. The default pilot configuration stages
 data in a separate `pangu-pilot` output tree; no GraphCast output paths are
 modified. Default Slurm scheduling is `hu_p` L40S for forecast and `batch`
 for CPU conversion. Production uses 20 fixed logical shards with a maximum
