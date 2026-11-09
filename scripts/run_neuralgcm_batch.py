@@ -25,6 +25,18 @@ FORECAST_HOURS = 1008
 OUTPUT_INTERVAL_HOURS = 6
 SEED = 42
 OUTPUT_DIR = "neuralgcm-operational"
+LEAD0_DIR = "neuralgcm-operational-lead0"
+
+
+def output_directory() -> str:
+    name = os.environ.get("NGCM_OUTPUT_DIR", OUTPUT_DIR)
+    if name not in (OUTPUT_DIR, LEAD0_DIR):
+        raise ValueError(f"Unrecognized NeuralGCM output directory: {name}")
+    return name
+
+
+def expected_leads() -> list[int]:
+    return list(range(0 if output_directory() == LEAD0_DIR else 6, 1009, 6))
 
 
 def initialization_dates() -> list[date]:
@@ -59,13 +71,13 @@ def valid_published_zarr(path: Path) -> bool:
     required = {"specific_humidity", "u_component_of_wind", "v_component_of_wind",
                 "temperature", "geopotential"}
     with xr.open_zarr(path, chunks=None, consolidated=False) as ds:
-        if ds.sizes.get("time") != 168 or ds.sizes.get("level") != 37:
+        if ds.sizes.get("time") != len(expected_leads()) or ds.sizes.get("level") != 37:
             return False
         if not required.issubset(ds.data_vars):
             return False
         if ds.attrs.get("seed") != SEED:
             return False
-        return np.array_equal(ds.time.values, np.arange(6, 1009, 6))
+        return np.array_equal(ds.time.values, expected_leads())
 
 
 def final_netcdf_verified(path: Path, day: date) -> bool:
@@ -104,7 +116,7 @@ def main() -> int:
     user = os.environ.get("USER")
     if not user:
         parser.error("USER is not set")
-    root = Path(f"/scratch/{user}/weather-ai/{OUTPUT_DIR}")
+    root = Path(f"/scratch/{user}/weather-ai/{output_directory()}")
     print(json.dumps({
         "worker": args.worker, "workers": args.num_workers,
         "count": len(mine), "dates": [str(day) for day in mine],
@@ -114,6 +126,7 @@ def main() -> int:
         "seed": SEED, "realizations_per_initialization": 1,
         "forcing": "initial_SST_and_sea_ice_persistence",
         "output_dir": str(root),
+        "expected_lead_count": len(expected_leads()),
     }, indent=2), flush=True)
     if args.dry_run:
         return 0
@@ -160,6 +173,7 @@ def main() -> int:
             "--write-chunk-steps", "8",
             "--max-pending-writes", "2",
             "--seed", str(SEED),
+            *(["--include-lead-zero"] if output_directory() == LEAD0_DIR else []),
             "--output", str(output),
         ]
         logfile = logs / f"neuralgcm_{day:%Y%m%d}_42day.log"
