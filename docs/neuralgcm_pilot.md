@@ -89,3 +89,38 @@ pixi run -e neuralgcm python scripts/run_neuralgcm_pilot.py \
 ```
 
 This command **runs GPU inference** and writes a new Zarr store; it does not overwrite prior 6-hour results. The log contains a structured JSON summary on success. On failure, completed stages are still printed, but the final success summary is not produced. This is *wall-clock stage instrumentation*, not a GPU kernel profiler such as JAX profiler or Nsight Systems.
+
+
+## Stage 2: 607-case NeuralGCM inference deployment (prepared, not submitted)
+
+Production uses precisely the same initialization calendar as `config/graphcast_operational.yaml` and `config/sfno_operational.yaml`: **2015-10-01–2025-04-30 inclusive; Tuesday and Friday; October–April; 607 initialization dates** (first 2015-10-02, last 2025-04-29), each at **00 UTC**. Every forecast has **42 days at six-hour cadence** (+6 to +1008 h; 168 forecast outputs without lead 0). **No IVT/postprocessing** is part of this stage.
+
+The driver `scripts/run_neuralgcm_batch.py` partitions these dates as `dates[worker::20]`, 30–31 cases per shard, and invokes the already validated `run_neuralgcm_pilot.py` for each case. It uses **stochastic v1 1.4°, RNG seed 42, one realization**, 48-hour I/O chunks and SST/sea-ice persistence. This matches *initialization dates and prediction horizons*, not deterministic versus stochastic sampling or exactly equal input grids. Other-model outputs have lead 0; NeuralGCM currently does not.
+
+Independent outputs: `/scratch/$USER/weather-ai/neuralgcm-operational/neuralgcm_YYYYMMDD_42day_seed42.zarr`. Per-case profiling logs: `.../logs/neuralgcm_YYYYMMDD_42day.log`. Existing outputs are validated before skipping and **never overwritten**; incomplete `.partial.zarr` remains for investigation. Every forecast is an independent subprocess, so each begins with a fresh JAX process. Failed cases are reported and the worker exits nonzero; successful remaining cases still run.
+
+**Preflight:**
+
+```bash
+python3 -m unittest discover -s tests -p 'test_neuralgcm_batch.py' -v
+python3 scripts/run_neuralgcm_batch.py --worker 0 --num-workers 20 --dry-run
+df -h /scratch/$USER
+```
+
+**Storage caveat:** Storing 7 37-level fields at 256 × 128 on 168 forecast times as float32 costs approximately 5.70 GB per initialization, or **3.46 TB across 607 before compression and metadata**. Actual on-disk Zarr size depends on dtype, compression and chunking; measure a completed 42-day Zarr via `du -sh` and check quota before scheduling production. `sim_time` is additional small metadata. The driver does not enforce quota.
+
+**Single-assignment deployment test before bulk submission:**
+
+```bash
+pixi run -e neuralgcm python scripts/run_neuralgcm_batch.py --worker 0 --num-workers 20 --limit 1
+```
+
+**Production (only after preflight and scratch-capacity approval):**
+
+```bash
+sbatch slurm/run_neuralgcm_forecast.slurm
+```
+
+The Slurm script requests `hu_p`, 1 × L40S, 8 CPUs, 64 GiB, 8h, 20 logical shards with at most two concurrent (`0-19%2`). It reuses the established Nix/Pixi bootstrap and records a log for each initialization. The submitted array should be monitored for scheduler constraints and storage pressure. No automatic submission is performed here.
+
+**Research limitation:** This is one stochastic realization per initialization, not a calibrated probabilistic ensemble. Prior 42-day pilot verified 168 lead times and all values finite, but negative humidity exists and full accuracy/IVT QC was not performed. SST/sea-ice persistence throughout the 42 days is a deliberate scientific assumption that must remain visible in comparisons.
