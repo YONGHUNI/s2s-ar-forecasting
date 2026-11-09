@@ -107,6 +107,17 @@ def main() -> int:
     errors = []
     for idx, day in enumerate(mine, 1):
         output = output_path(root, day)
+        final_nc = root / "netcdf" / f"neuralgcm_{day:%Y%m%d}_42day_seed{SEED}.nc"
+        # Match legacy producers: a validated final NetCDF is the terminal
+        # artifact, even when its transient Zarr was already reclaimed.
+        if final_nc.exists():
+            from convert_neuralgcm_netcdf import valid_nc
+            if valid_nc(final_nc, day.isoformat()):
+                print(f"[{idx}/{len(mine)}] SKIP validated NetCDF {day}", flush=True)
+                continue
+            print(f"INVALID existing NetCDF (no overwrite): {final_nc}", flush=True)
+            errors.append(str(day))
+            continue
         partial = Path(str(output) + ".partial.zarr")
         if output.exists():
             try:
