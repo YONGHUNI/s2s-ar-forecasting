@@ -161,3 +161,33 @@ NGCM_MODE=production NGCM_PRODUCTION_CONFIRMED=1 bash submit_neuralgcm_pipeline.
 ```
 
 The one-initialization batch canary was also successfully run on an allocated GPU node, and rerunning correctly skipped the validated `2015-10-02` output. The login-node `sbatch` wrapper is new and has not yet been verified through a scheduler submission. The production mode requires explicit confirmation to prevent accidental large allocations.
+
+
+## Stage 3: concurrent NeuralGCM NetCDF conversion
+
+GPU producer job `49992044` was submitted **before** the converter was implemented. Do not submit that GPU array again. `submit_neuralgcm_converter.sh` attaches a standalone CPU converter to the existing job, following the previous GraphCast/Pangu/SFNO layout: timestamped Slurm log directory, producer ID, one persistent CPU conversion manager, up to three conversion subprocesses, 48-hour Slurm allocation and requeue after 46 hours, atomic `.nc.partial` publication and validation.
+
+Output location:
+`/scratch/$USER/weather-ai/neuralgcm-operational/netcdf/neuralgcm_YYYYMMDD_42day_seed42.nc`.
+
+Unlike the old GraphCast staging directory, NeuralGCM outputs are **permanent published Zarr outputs** with no `.ready` markers. The converter recognizes the presence of the atomically published final Zarr directory and **never removes source Zarr**. The NetCDF target is separate from the Zarr. Expect approximately 3.3 TiB of additional NetCDF disk usage, varying with compression. Existing `.partial` paths and invalid NetCDFs are never silently overwritten. A converter does not modify the NeuralGCM forecast or calculate IVT.
+
+Login-node smoke submission, **only the 2015-10-02 output**, without resubmitting GPU forecast:
+
+```bash
+GIT_SSH_COMMAND='ssh -F /dev/null' git pull --ff-only origin feature/neuralgcm-pilot
+NGCM_CONVERT_LIMIT=1 bash submit_neuralgcm_converter.sh 49992044
+```
+
+Wait until the CPU converter log confirms publication and the new NetCDF passes inspection. Then attach the full manager (it will skip the already verified NetCDF):
+
+```bash
+unset NGCM_CONVERT_LIMIT
+bash submit_neuralgcm_converter.sh 49992044
+```
+
+These are **Slurm submissions**. The login node performs no NetCDF encoding. Do not submit two full converters concurrently, because they could race to create the same `.partial` destination. Avoid running the single-case and full manager simultaneously as well. For future *new* NeuralGCM experiments, `submit_neuralgcm_pipeline.sh` submits both the GPU array and the CPU converter, matching the legacy single-entrypoint behavior.
+
+The converter validates sizes (`time=168`, `level=37`), required atmospheric variables, seed, initialization date, and 6-hour forecast schedule before publishing. This is metadata/shape validation, not full point-by-point numerical equivalence testing. The 2015-10-02 NetCDF pilot should be compared against its source Zarr before scaling to 607 cases.
+
+**Important**: If the producer job has completed and there are missing Zarr files, the converter stops rather than waiting indefinitely. To resume after failed GPU cases are repaired, submit another conversion job. The current startup quota remains the user's responsibility.
