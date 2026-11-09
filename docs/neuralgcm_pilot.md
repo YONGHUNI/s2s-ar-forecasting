@@ -70,3 +70,22 @@ pixi run -e neuralgcm python scripts/run_neuralgcm_pilot.py \
 ```
 
 This 12-hour smoke test forces **two separate writes** (6h then 12h), so it exercises the asynchronous append and final publication. It downloads ERA5 and the official checkpoint and runs on GPU. The prior 6-hour Zarr remains untouched. Full 42-day results have **not** been produced or benchmarked.
+
+
+## Stage 1c: per-stage profiling (not yet benchmarked)
+
+The runner emits `[PROFILE]` messages using `time.perf_counter()` after each completed stage:
+- JAX import and device initialization, checkpoint download, model construction, ARCO metadata open, initial ERA5 fetch, conservative regridding/fill, and encode.
+- Per output chunk: **GPU unroll including compilation and explicit `jax.block_until_ready` synchronization**, device-to-host transfer plus xarray conversion, and async submission/backpressure.
+- Async I/O: worker write duration per Zarr chunk (sum), time spent waiting for queue capacity, remaining wait in `finish()`, Zarr metadata validation, and final atomic rename, plus total wall time.
+
+For reproducible comparison, run a **12-hour** test with `--write-chunk-steps 1`. The first compilation will be substantially slower than subsequent chunks. Per-stage durations overlap during async execution, so **their sum must not be interpreted as total runtime**. The report contains the separate wall-clock total. Network/cold-cache effects also change elapsed times.
+
+```bash
+pixi run -e neuralgcm python scripts/run_neuralgcm_pilot.py \
+  --forecast-hours 12 --write-chunk-steps 1 \
+  --output /scratch/$USER/weather-ai/neuralgcm-pilot/neuralgcm_20241001_async_profile_12h.zarr \
+  2>&1 | tee /scratch/$USER/weather-ai/neuralgcm-pilot/async_profile_12h.log
+```
+
+This command **runs GPU inference** and writes a new Zarr store; it does not overwrite prior 6-hour results. The log contains a structured JSON summary on success. On failure, completed stages are still printed, but the final success summary is not produced. This is *wall-clock stage instrumentation*, not a GPU kernel profiler such as JAX profiler or Nsight Systems.
