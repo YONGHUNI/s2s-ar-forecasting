@@ -20,7 +20,12 @@ cd "$ROOT"
   exit 1
 }
 
-MODE="${NGCM_MODE:-production}"
+MODE="${NGCM_MODE:-pilot}"
+OUTPUT_DIR="${NGCM_OUTPUT_DIR:-neuralgcm-operational-lead0}"
+[[ "$OUTPUT_DIR" == "neuralgcm-operational-lead0" ]] || {
+  echo "169-lead pipeline requires NGCM_OUTPUT_DIR=neuralgcm-operational-lead0" >&2
+  exit 2
+}
 case "$MODE" in
   pilot)
     ARRAY="0"
@@ -49,12 +54,13 @@ producer_raw="$(
     --array="$ARRAY" \
     --output="$LOG_DIR/neuralgcm-forecast-%A_%a.log" \
     --error="$LOG_DIR/neuralgcm-forecast-%A_%a.log" \
-    --export="ALL,NGCM_LIMIT=$LIMIT" \
+    --export="ALL,NGCM_LIMIT=$LIMIT,NGCM_OUTPUT_DIR=$OUTPUT_DIR" \
     slurm/run_neuralgcm_forecast.slurm
 )"
 producer_job="${producer_raw%%;*}"
 
 printf 'NeuralGCM mode:       %s\n' "$MODE"
+printf 'Output directory:      %s\n' "$OUTPUT_DIR"
 printf 'Forecast array:       %s (%s)\n' "$producer_job" "$ARRAY"
 printf 'Per-worker limit:     %s\n' "${LIMIT:-none}"
 printf 'Log directory:        %s\n' "$LOG_DIR"
@@ -65,10 +71,10 @@ converter_raw="$(
   sbatch --parsable \
     --output="$LOG_DIR/neuralgcm-convert-%j.log" \
     --error="$LOG_DIR/neuralgcm-convert-%j.log" \
-    --export="ALL,PRODUCER_JOB_ID=$producer_job,NGCM_CONVERT_LIMIT=$LIMIT" \
+    --export="ALL,PRODUCER_JOB_ID=$producer_job,NGCM_CONVERT_LIMIT=$LIMIT,NGCM_OUTPUT_DIR=$OUTPUT_DIR" \
     slurm/run_neuralgcm_convert.slurm
 )"
 converter_job="${converter_raw%%;*}"
 printf 'CPU converter:        %s\n' "$converter_job"
 printf 'Monitor both: squeue -j %s,%s\n' "$producer_job" "$converter_job"
-printf 'NetCDF: /scratch/%s/weather-ai/neuralgcm-operational/netcdf/\n' "$USER"
+printf 'NetCDF: /scratch/%s/weather-ai/%s/netcdf/\n' "$USER" "$OUTPUT_DIR"
