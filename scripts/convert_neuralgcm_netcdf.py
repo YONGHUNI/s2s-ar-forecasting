@@ -218,6 +218,10 @@ def main() -> int:
             if completed == len(items) and not active:
                 stamp(f"All {completed} NetCDF outputs completed.")
                 return 0
+            if len(failed) + completed == len(items) and not active:
+                stamp(f"All available cases are resolved: {completed} converted, "
+                      f"{len(failed)} failed. Exiting nonzero instead of idle polling.")
+                return 1
             due = (args.requeue_after_seconds > 0 and
                    time.monotonic() - started >= args.requeue_after_seconds)
 
