@@ -124,3 +124,25 @@ sbatch slurm/run_neuralgcm_forecast.slurm
 The Slurm script requests `hu_p`, 1 × L40S, 8 CPUs, 64 GiB, 8h, 20 logical shards with at most two concurrent (`0-19%2`). It reuses the established Nix/Pixi bootstrap and records a log for each initialization. The submitted array should be monitored for scheduler constraints and storage pressure. No automatic submission is performed here.
 
 **Research limitation:** This is one stochastic realization per initialization, not a calibrated probabilistic ensemble. Prior 42-day pilot verified 168 lead times and all values finite, but negative humidity exists and full accuracy/IVT QC was not performed. SST/sea-ice persistence throughout the 42 days is a deliberate scientific assumption that must remain visible in comparisons.
+
+
+## Login-node submission (preferred)
+
+The Slurm file now supports an optional exported `NGCM_LIMIT` so **both** canary and full production run only on compute nodes, not on an interactive or login shell. The login node is only used for `git pull`, `sbatch`, `squeue`, and log checks. It does not execute Pixi installation, imports, checkpoint loading, or GPU work.
+
+From the Sapelo2 login node, project repository root:
+
+```bash
+GIT_SSH_COMMAND='ssh -F /dev/null' git pull --ff-only origin feature/neuralgcm-pilot
+sbatch --array=0 --export=ALL,NGCM_LIMIT=1 slurm/run_neuralgcm_forecast.slurm
+```
+
+This schedules **only worker 0's first 42-day initialization**, rather than 31 cases. Monitor job ID shown by `sbatch` using `squeue -u "$USER"`; read `neuralgcm-forecast-<jobid>_0.out` and per-date log under `/scratch/$USER/weather-ai/neuralgcm-operational/logs/`. Once verified, launch:
+
+```bash
+sbatch --array=0-19%2 --export=ALL,NGCM_LIMIT= slurm/run_neuralgcm_forecast.slurm
+```
+
+The explicit blank `NGCM_LIMIT` prevents the canary limit from propagating to full production. Already validated cases are skipped.
+
+**Difference from previous three-model pipeline:** this phase intentionally performs only NeuralGCM inference and stores native full 37-level output in Zarr. The GraphCast/Pangu/SFNO pipeline also has separate Zarr-to-NetCDF conversion and model-specific variable selection. No claim is made that NeuralGCM NetCDF conversion or postprocessing is already in place. The output is ~5.5 GiB/case, about 3.3 TiB for 607 cases, so check user and group storage policy. For consistency, a separate NeuralGCM converter can be built and independently verified after canary before full launch.
