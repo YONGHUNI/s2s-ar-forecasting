@@ -45,7 +45,12 @@ srun --cpu-bind=none --ntasks=1 --cpus-per-task="$SLURM_CPUS_PER_TASK" \
     export OPENBLAS_NUM_THREADS="$SLURM_CPUS_PER_TASK"
     export MKL_NUM_THREADS="$SLURM_CPUS_PER_TASK"
     export NUMEXPR_NUM_THREADS="$SLURM_CPUS_PER_TASK"
-    echo "NeuralGCM worker=$SLURM_ARRAY_TASK_ID / $NUM_SHARDS gpu=$CUDA_VISIBLE_DEVICES"
+    echo "NeuralGCM worker=$SLURM_ARRAY_TASK_ID / $NUM_SHARDS gpu=$CUDA_VISIBLE_DEVICES limit=${NGCM_LIMIT:-all}"
+    LIMIT_ARGS=()
+    if [[ -n "${NGCM_LIMIT:-}" ]]; then
+      [[ "$NGCM_LIMIT" =~ ^[1-9][0-9]*$ ]] || { echo "NGCM_LIMIT must be a positive integer" >&2; exit 2; }
+      LIMIT_ARGS=(--limit "$NGCM_LIMIT")
+    fi
     pixi run -e neuralgcm -- python -u scripts/run_neuralgcm_batch.py \
-      --worker "$SLURM_ARRAY_TASK_ID" --num-workers "$NUM_SHARDS"
+      --worker "$SLURM_ARRAY_TASK_ID" --num-workers "$NUM_SHARDS" "${LIMIT_ARGS[@]}"
   '
