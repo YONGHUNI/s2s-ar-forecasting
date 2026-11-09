@@ -25,6 +25,7 @@ class TestNeuralGCMCleanup(unittest.TestCase):
                 "initialization": "2015-10-02",
                 "seed": 42,
                 "size_bytes": 7,
+                "lead_count": 168,
             }))
             self.assertTrue(final_netcdf_verified(nc, date(2015, 10, 2)))
             self.assertFalse(final_netcdf_verified(nc, date(2015, 10, 6)))
