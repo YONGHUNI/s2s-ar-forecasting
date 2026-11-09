@@ -1,6 +1,6 @@
 # Standalone, figure-only workflow. Existing forecast pipeline is untouched.
 forecast:
-  root: "/scratch/{user}/weather-ai/graphcast-operational-deterministic"
+  root: "/scratch/{user}/weather-ai/graphcast-operational"
   pattern: "graphcast_operational_*_42day_subset.nc"
   expected_initializations: 607
   steps: 169
@@ -17,4 +17,7 @@ plot:
   temperature_celsius: true
   precipitation_mm: true
   percentiles: [90, 95, 99]
+  t2m_min_c: -40
+  t2m_max_c: 40
+  pr_max_mm: 60
   precipitation_negative_tolerance_m: 0.00001

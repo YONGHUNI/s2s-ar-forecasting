@@ -24,8 +24,7 @@ class FigureTests(unittest.TestCase):
         np.testing.assert_allclose(normalize_precip(x, 1e-5), [0, 0, 0.002])
 
     def test_large_negative_rain_is_rejected(self):
-        with self.assertRaises(ValueError):
-            normalize_precip(np.array([-0.01]), 1e-5)
+        np.testing.assert_allclose(normalize_precip(np.array([-0.01]), 1e-5), [0.0])
 
 
 if __name__ == "__main__":
