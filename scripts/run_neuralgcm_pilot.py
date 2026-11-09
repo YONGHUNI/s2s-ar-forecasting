@@ -8,6 +8,8 @@ import os
 import pickle
 from pathlib import Path
 
+from neuralgcm_async_io import AsyncNeuralGCMZarrWriter
+
 import numpy as np
 
 CHECKPOINT = "gs://neuralgcm/models/v1/stochastic_1_4_deg.pkl"
@@ -38,8 +40,14 @@ def main() -> None:
     parser.add_argument("--output-every-hours", type=int, default=6)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--write-chunk-steps", type=int, default=8,
+                        help="Number of 6-hour output steps per GPU/async-I/O chunk")
+    parser.add_argument("--max-pending-writes", type=int, default=2,
+                        help="Bounded number of Zarr chunks pending in the writer")
     args = parser.parse_args()
     leads = forecast_schedule(args.forecast_hours, args.output_every_hours)
+    if args.write_chunk_steps < 1 or args.max_pending_writes < 1:
+        parser.error("write-chunk-steps and max-pending-writes must be positive")
     if args.seed < 0:
         parser.error("seed must be nonnegative")
     user = os.environ.get("USER")
@@ -101,30 +109,54 @@ def main() -> None:
     initial_forcings = model.forcings_from_xarray(initial.isel(time=0))
     state = model.encode(inputs, initial_forcings, jax.random.key(args.seed))
     temporal_forcings = model.forcings_from_xarray(initial.head(time=1))
-    # Unlike start_with_input=True, this advances exactly to the final saved lead.
-    _, output_data = model.unroll(
-        state, temporal_forcings, steps=len(leads),
-        timedelta=np.timedelta64(args.output_every_hours, "h"),
-        start_with_input=False,
+    # Each unroll advances only to the last emitted lead for this chunk.
+    # The CPU writer overlaps one Zarr append with later GPU inference.
+    writer = AsyncNeuralGCMZarrWriter(
+        output, max_pending=args.max_pending_writes
     )
-    predictions = model.data_to_xarray(jax.device_get(output_data), times=np.array(leads))
-    predictions.attrs.update({
-        "model": "NeuralGCM v1 stochastic 1.4deg",
-        "initialization_utc": str(init),
-        "checkpoint_uri": CHECKPOINT,
+    variable_names = None
+    try:
+        for offset in range(0, len(leads), args.write_chunk_steps):
+            chunk_leads = leads[offset:offset + args.write_chunk_steps]
+            state, output_data = model.unroll(
+                state, temporal_forcings, steps=len(chunk_leads),
+                timedelta=np.timedelta64(args.output_every_hours, "h"),
+                start_with_input=False,
+            )
+            # Synchronization and host transfer are explicit. The worker then
+            # writes immutable host arrays while the next chunk is computed.
+            predictions = model.data_to_xarray(
+                jax.device_get(output_data), times=np.asarray(chunk_leads)
+            )
+            predictions.attrs.update({
+                "model": "NeuralGCM v1 stochastic 1.4deg",
+                "initialization_utc": str(init),
+                "checkpoint_uri": CHECKPOINT,
+                "checkpoint_sha256": digest,
+                "seed": args.seed,
+                "forcing_policy": "initial_SST_and_sea_ice_persistence",
+                "input_dataset": ARCO,
+                "lead_time_units": "hours",
+            })
+            variable_names = list(predictions.data_vars)
+            writer.submit(predictions)
+            print(
+                f"Submitted async Zarr chunk: lead {chunk_leads[0]}-"
+                f"{chunk_leads[-1]}h ({len(chunk_leads)} outputs)", flush=True
+            )
+        published = writer.finish()  # Wait for all writes, validate, then rename.
+    finally:
+        writer.close()
+
+    print(json.dumps({
+        "output": str(published),
+        "lead_hours": leads,
+        "variables": variable_names,
         "checkpoint_sha256": digest,
-        "seed": args.seed,
-        "forcing_policy": "initial_SST_and_sea_ice_persistence",
-        "input_dataset": ARCO,
-        "lead_time_units": "hours",
-    })
-    output.parent.mkdir(parents=True, exist_ok=True)
-    if output.exists():
-        raise FileExistsError(f"output appeared during inference: {output}")
-    predictions.to_zarr(output, mode="w")
-    print(json.dumps({"output": str(output), "lead_hours": leads,
-                      "variables": list(predictions.data_vars),
-                      "sha256": digest}, indent=2), flush=True)
+        "io_mode": "async_chunked_zarr",
+        "write_chunk_steps": args.write_chunk_steps,
+        "max_pending_writes": args.max_pending_writes,
+    }, indent=2), flush=True)
 
 
 if __name__ == "__main__":
