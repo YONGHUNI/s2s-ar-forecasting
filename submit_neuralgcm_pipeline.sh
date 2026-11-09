@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Submit NeuralGCM GPU forecast array from the Sapelo2 login node.
-# Inference only: no IVT, QC conversion, or NetCDF converter is launched.
+# Submit NeuralGCM GPU forecast array plus CPU NetCDF converter from login node.
+# The converter automatically reclaims a Zarr only after validating its NetCDF.
+# No IVT calculation is performed.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
