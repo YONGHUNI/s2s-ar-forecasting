@@ -141,6 +141,7 @@ def main() -> int:
     active = {}
     started = time.monotonic()
     failed = set()
+    verified = set()
     stamp(f"NeuralGCM converter started: {len(items)} files, workers={args.workers}, "
           f"compression={args.compression_level}, producer={args.producer_job_id}")
 
@@ -150,12 +151,24 @@ def main() -> int:
                 date_str, source, dest = active.pop(future)
                 try:
                     size, seconds = future.result()
+                    if not valid_nc(dest, date_str):
+                        raise ValueError(f"Post-publication validation failed: {dest}")
+                    verified.add(date_str)
                     stamp(f"Published {dest.name}: {size/1024**3:.2f} GiB in {seconds:.1f}s")
                 except Exception as exc:
                     failed.add(date_str)
                     stamp(f"FAILED {date_str}: {exc!r}; preserved source {source}")
 
-            completed = sum(valid_nc(dest, day) for day, _, dest in items)
+            # Completed files are immutable. Cache validation instead of opening
+            # hundreds of multi-GiB NetCDF files every polling interval.
+            for day, _, dest in items:
+                if day not in verified and day not in failed and dest.exists():
+                    if valid_nc(dest, day):
+                        verified.add(day)
+                    else:
+                        failed.add(day)
+                        stamp(f"INVALID existing NetCDF (not overwritten): {dest}")
+            completed = len(verified)
             if completed == len(items) and not active:
                 stamp(f"All {completed} NetCDF outputs completed.")
                 return 0
@@ -168,10 +181,7 @@ def main() -> int:
                         break
                     if day in failed or any(d == day for d, _, _ in active.values()):
                         continue
-                    if dest.exists():
-                        if not valid_nc(dest, day):
-                            failed.add(day)
-                            stamp(f"INVALID existing NetCDF (not overwritten): {dest}")
+                    if day in verified or dest.exists():
                         continue
                     if Path(str(dest) + ".partial").exists():
                         failed.add(day)
