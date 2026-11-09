@@ -59,3 +59,15 @@ printf 'Per-worker limit:     %s\n' "${LIMIT:-none}"
 printf 'Log directory:        %s\n' "$LOG_DIR"
 printf 'Monitor: squeue -j %s\n' "$producer_job"
 printf 'Per-case logs: /scratch/%s/weather-ai/neuralgcm-operational/logs/\n' "$USER"
+
+converter_raw="$(
+  sbatch --parsable \
+    --output="$LOG_DIR/neuralgcm-convert-%j.log" \
+    --error="$LOG_DIR/neuralgcm-convert-%j.log" \
+    --export="ALL,PRODUCER_JOB_ID=$producer_job" \
+    slurm/run_neuralgcm_convert.slurm
+)"
+converter_job="${converter_raw%%;*}"
+printf 'CPU converter:        %s\n' "$converter_job"
+printf 'Monitor both: squeue -j %s,%s\n' "$producer_job" "$converter_job"
+printf 'NetCDF: /scratch/%s/weather-ai/neuralgcm-operational/netcdf/\n' "$USER"
