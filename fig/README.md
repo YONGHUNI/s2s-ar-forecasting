@@ -13,7 +13,7 @@ One GIF per GraphCast initialization: **607 GIFs** if the configured forecast in
 
 Each P90/P95/P99 is computed **once per initialization and variable**, from ALL finite values over the original forecast NetCDF's lead-time, latitude, and longitude dimensions (before spatial sampling for plotting). Thresholds stay fixed across the 169 frames. These are whole-domain spatial-temporal thresholds, **not** climatological or local extreme thresholds. Zero-precipitation cells remain in the precipitation distribution.
 
-T2m is displayed in °C (source K); precipitation is displayed in mm per 6h (source m). Both are thresholded in their original stored units, with the same results as thresholding after a monotone unit conversion. Slight negative precipitation may arise numerically; values below the configured negative tolerance raise an error, otherwise they are clipped to zero for plotting and percentile calculations (the original NetCDF is never changed). Raw negative counts are logged.
+T2m is displayed in °C (source K); precipitation is displayed in mm per 6h (source m). Both are thresholded in their original stored units, with the same results as thresholding after a monotone unit conversion. Negative forecast precipitation values produce QC warnings and are clipped to zero for plotting and percentile calculations; the original NetCDF is unchanged. The warning reports the negative minimum and number of affected cells. This is a visualization policy, not scientific validation of negative precipitation.
 
 ERA5 is the ARCO ERA5 reanalysis data source used as GraphCast's inference initial-condition source, but plotted at the **forecast valid time**, not by repeating the initialization field. Request `t2m` and `tp06` (the latter is the six-hour accumulated value). ERA5 is reanalysis, not an independent ground-station observation.
 
@@ -46,8 +46,8 @@ The repository's existing Pixi `graphcast` environment is used to retrieve refer
 * Output files are written through temporary paths and renamed only after successful completion. Existing completed files are skipped, enabling restart.
 * Nothing has been run on Sapelo2 by committing this code. Actual server-side results and costs require an execution test.
 
-## Display settings (2026-11 widescreen)
-- Fixed **16:9** 2×5 arrangement, variable per row (T2m above precipitation).
+## Display settings (2026-11 compact)
+- Fixed **compact 2×5** arrangement, variable per row (T2m above precipitation).
 - Static Natural Earth 1:110m shoreline outlines appear on the P90/P95/P99 panels to retain geographic context where the threshold mask is sparse. Bundled data are public domain: https://github.com/nvkelso/natural-earth-vector/blob/master/geojson/ne_110m_land.geojson
 - The same temperature colour limits, **−40 to 40 °C**, and 6-hour precipitation limits, **0 to 60 mm**, are used in ALL 607 GIFs. Colourbar ends use extends; values outside the displayed range are coloured using saturated end colours, not edited or removed.
 - Nonphysical negative forecast precipitation is clipped **for display and quantile calculation only**; original NetCDF untouched. QC logs record the minimum and clipped count. Zero-rain cells count toward thresholds but are omitted from extreme-rainfall overlays.
@@ -56,8 +56,8 @@ The repository's existing Pixi `graphcast` environment is used to retrieve refer
 
 ### Geographic aspect ratio
 
-Each panel uses `imshow(..., aspect="equal")` in the original longitude/latitude coordinate system, instead of stretching pixels with `aspect="auto"`. This preserves the Plate Carrée longitude/latitude ratio (a full-global map is ~2:1 in degrees). The outer GIF canvas remains 16:9, and individual panels may have extra vertical whitespace. Equal degrees do not imply equal ground distances at different latitudes.
+Each panel uses `imshow(..., aspect="equal")` in the original longitude/latitude coordinate system, instead of stretching pixels with `aspect="auto"`. This preserves the Plate Carrée longitude/latitude ratio (a full-global map is ~2:1 in degrees). The outer figure is 19.2×5.8 inches (about 3.31:1), not 16:9; individual panels may have additional whitespace. Equal degrees do not imply equal ground distances at different latitudes.
 
 ### Compact 2×5 layout
 
-The 2×5 maps maintain equal longitude/latitude scale, but are rendered on a compact 19.2×5.8 inch canvas rather than a 16:9 canvas to remove large vertical gaps. A 16:9 canvas cannot tightly contain ten global maps in two rows without stretching or cropping maps. The new files are written as `graphcast_10panel_compact_YYYYMMDD.gif`, preserving earlier widescreen GIF files.
+The 2×5 maps maintain equal longitude/latitude scale, but are rendered on a compact 19.2×5.8 inch canvas rather than a 16:9 canvas to remove large vertical gaps. A 16:9 canvas cannot tightly contain ten global maps in two rows without stretching or cropping maps. The new files are written as `graphcast_10panel_compact_v2_YYYYMMDD.gif`, preserving earlier widescreen GIF files.
